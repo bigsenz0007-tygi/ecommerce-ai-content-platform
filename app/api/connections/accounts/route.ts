@@ -1,16 +1,31 @@
-import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import {
-  readPlatformAccounts,
-  writePlatformAccounts,
-  type PlatformAccountRecord,
-} from "@/lib/platform-account-store";
 import { getCurrentUserFromCookie, unauthorized } from "@/lib/auth-session";
 
+function toRow(r: {
+  id: string;
+  platform: string;
+  username: string;
+  connected: boolean;
+  lastTestStatus: string;
+  lastTestAt: Date;
+}) {
+  return {
+    id: r.id,
+    platform: r.platform,
+    username: r.username,
+    passwordMask: "******",
+    connected: r.connected,
+    lastTestStatus: r.lastTestStatus,
+    lastTestAt: r.lastTestAt.toISOString(),
+  };
+}
+
 export async function GET() {
-  const accounts = await readPlatformAccounts();
-  return NextResponse.json({ accounts });
+  const rows = await prisma.platformLinkedAccount.findMany({
+    orderBy: { lastTestAt: "desc" },
+  });
+  return NextResponse.json({ accounts: rows.map(toRow) });
 }
 
 export async function POST(request: Request) {
@@ -28,7 +43,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // 登录测试（模拟）：密码至少4位即判定可登录
   const loginOk = body.password.trim().length >= 4;
   if (!loginOk) {
     return NextResponse.json(
@@ -37,41 +51,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const rows = await readPlatformAccounts();
-  const existing = rows.find(
-    (x) => x.platform === body.platform && x.username === body.username
-  );
-  const now = new Date().toISOString();
-  let next: PlatformAccountRecord[];
-  if (existing) {
-    next = rows.map((x) =>
-      x.id === existing.id
-        ? {
-            ...x,
-            connected: true,
-            lastTestStatus: "ok",
-            lastTestAt: now,
-            passwordMask: "******",
-          }
-        : x
-    );
-  } else {
-    next = [
-      ...rows,
-      {
-        id: randomUUID(),
-        platform: body.platform,
-        username: body.username,
-        passwordMask: "******",
-        connected: true,
-        lastTestStatus: "ok",
-        lastTestAt: now,
-      },
-    ];
-  }
-  await writePlatformAccounts(next);
+  const now = new Date();
+  await prisma.platformLinkedAccount.upsert({
+    where: {
+      platform_username: { platform: body.platform, username: body.username },
+    },
+    create: {
+      platform: body.platform,
+      username: body.username,
+      passwordMask: "******",
+      connected: true,
+      lastTestStatus: "ok",
+      lastTestAt: now,
+    },
+    update: {
+      connected: true,
+      lastTestStatus: "ok",
+      lastTestAt: now,
+      passwordMask: "******",
+    },
+  });
 
-  // 首次登录成功后默认设为发布账号
   await prisma.platformConnection.upsert({
     where: { platform: body.platform },
     create: {
@@ -127,8 +127,10 @@ export async function DELETE(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id 必填" }, { status: 400 });
-  const rows = await readPlatformAccounts();
-  const next = rows.filter((x) => x.id !== id);
-  await writePlatformAccounts(next);
+  try {
+    await prisma.platformLinkedAccount.delete({ where: { id } });
+  } catch {
+    return NextResponse.json({ error: "记录不存在" }, { status: 404 });
+  }
   return NextResponse.json({ ok: true });
 }

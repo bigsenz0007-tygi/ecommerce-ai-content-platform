@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -77,4 +77,46 @@ model Task {
   failReason     String   @default("")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+}
+
+/// 手机号验证码登录（避免 Vercel 无服务器环境写本地 JSON 失败）
+model AuthUser {
+  id        String        @id @default(cuid())
+  phone     String        @unique
+  createdAt DateTime      @default(now())
+  sessions  AuthSession[]
+}
+
+model AuthSmsCode {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  used      Boolean  @default(false)
+
+  @@index([phone, createdAt])
+}
+
+model AuthSession {
+  token     String   @id
+  userId    String
+  user      AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+}
+
+/// 策略配置页「平台账号池」（替代 data/platform-accounts.json）
+model PlatformLinkedAccount {
+  id               String   @id @default(cuid())
+  platform         String
+  username         String
+  passwordMask     String   @default("******")
+  connected        Boolean  @default(true)
+  lastTestStatus   String   @default("ok")
+  lastTestAt       DateTime @default(now())
+
+  @@unique([platform, username])
 }

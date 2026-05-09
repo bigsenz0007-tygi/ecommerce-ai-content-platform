@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import type { ContentTask } from "@/components/ContentList";
 import { BizDropdown } from "@/components/BizDropdown";
 import { useSearchParams } from "next/navigation";
 import { TaskEditModal } from "@/components/TaskEditModal";
 
-export default function ReviewPage() {
+function ReviewPageInner() {
   const searchParams = useSearchParams();
   const [tasks, setTasks] = useState<ContentTask[]>([]);
   const [stats, setStats] = useState<{
@@ -303,6 +303,18 @@ export default function ReviewPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+export default function ReviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-[hsl(var(--muted))]">加载中…</div>
+      }
+    >
+      <ReviewPageInner />
+    </Suspense>
   );
 }
 

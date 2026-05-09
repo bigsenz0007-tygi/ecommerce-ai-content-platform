@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ContentList, type ContentTask } from "@/components/ContentList";
 import { BizDropdown } from "@/components/BizDropdown";
 
-export default function ContentPage() {
+function ContentPageInner() {
   const searchParams = useSearchParams();
   const [tasks, setTasks] = useState<ContentTask[]>([]);
 
@@ -168,6 +168,18 @@ export default function ContentPage() {
         allowTaskActions={loggedIn}
       />
     </div>
+  );
+}
+
+export default function ContentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-[hsl(var(--muted))]">加载中…</div>
+      }
+    >
+      <ContentPageInner />
+    </Suspense>
   );
 }
 

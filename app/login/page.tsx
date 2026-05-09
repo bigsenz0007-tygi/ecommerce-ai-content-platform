@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/dashboard";
@@ -100,6 +100,7 @@ export default function LoginPage() {
               onChange={(e) => setCode(e.target.value)}
             />
             <button
+              type="button"
               onClick={() => void sendCode()}
               className="btn-secondary rounded-xl"
               disabled={sending || cooldown > 0}
@@ -107,12 +108,26 @@ export default function LoginPage() {
               {sending ? "发送中" : cooldown > 0 ? `${cooldown}s` : "获取验证码"}
             </button>
           </div>
-          <button onClick={() => void login()} className="biz-primary-btn w-full" disabled={loading}>
+          <button type="button" onClick={() => void login()} className="biz-primary-btn w-full" disabled={loading}>
             {loading ? "登录中..." : "登录"}
           </button>
           {hint ? <div className="text-xs text-[hsl(var(--muted))]">{hint}</div> : null}
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center text-sm text-[hsl(var(--muted))]">
+          加载中…
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

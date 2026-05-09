@@ -1,0 +1,27 @@
+# deps
+node_modules
+.pnpm-store
+
+# next
+.next
+out
+
+# env
+.env
+.env*.local
+
+# prisma
+prisma/*.db
+prisma/*.db-journal
+
+# local runtime data
+data/*.json
+
+# debug
+npm-debug.log*
+.DS_Store
+*.tsbuildinfo
+
+# ide
+.idea
+.vscode

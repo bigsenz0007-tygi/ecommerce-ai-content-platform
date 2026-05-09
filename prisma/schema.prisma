@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AppSettings {
+  id                String  @id @default("singleton")
+  dailyCount        Int     @default(10)
+  premiumSlots      Int     @default(2)
+  scheduleHour      Int     @default(9)
+  bannedWords       String  @default("[]")
+  maxConcurrentTask Int     @default(20)
+  maxPublishPerHour Int     @default(30)
+  minScoreForPublish Int    @default(70)
+  autoDeleteRejected Boolean @default(true)
+  complianceLevel   String  @default("strict")
+  rejectedCount     Int     @default(0)
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  name      String
+  platform  String
+  tone      String   @default("")
+  createdAt DateTime @default(now())
+  tasks     Task[]
+}
+
+model PlatformConnection {
+  id          String   @id @default(cuid())
+  platform    String   @unique
+  accountName String   @default("")
+  connected   Boolean  @default(false)
+  tokenMask   String   @default("")
+  updatedAt   DateTime @updatedAt
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  keywords  String   @default("")
+  createdAt DateTime @default(now())
+  tasks     Task[]
+}
+
+model Task {
+  id             String   @id @default(cuid())
+  accountId      String
+  categoryId     String
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  status         String
+  tier           String
+  objective      String   @default("涨粉")
+  contentFormat  String   @default("图文")
+  copyTitle      String   @default("")
+  copyBody       String   @default("")
+  imagePrompt    String   @default("")
+  imageUrl       String   @default("")
+  videoScript    String   @default("")
+  videoUrl       String   @default("")
+  benchmarkTitle String   @default("")
+  benchmarkBody  String   @default("")
+  benchmarkUrl   String   @default("")
+  qualityLabel   String   @default("中")
+  processMemo    String   @default("")
+  scoreCompliance Int     @default(0)
+  scoreQuality   Int      @default(0)
+  scoreConvert   Int      @default(0)
+  scoreTotal     Float    @default(0)
+  adopted        Boolean  @default(false)
+  archived       Boolean  @default(false)
+  failReason     String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 228 36% 7%;
+  --surface: 230 28% 10%;
+  --surface-raised: 232 24% 14%;
+  --border: 236 16% 22%;
+  --accent: 261 92% 66%;
+  --accent-muted: 261 58% 44%;
+  --foreground: 220 30% 96%;
+  --muted: 224 12% 63%;
+  --fs-12: 12px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+  --sp-12: 12px;
+  --sp-14: 14px;
+  --sp-16: 16px;
+  --sp-18: 18px;
+  --sp-20: 20px;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))] antialiased;
+  background-image:
+    radial-gradient(ellipse 120% 80% at 10% -20%, hsl(261 78% 24% / 0.32), transparent 55%),
+    radial-gradient(ellipse 90% 60% at 100% 0%, hsl(194 80% 22% / 0.18), transparent 50%);
+}
+
+::placeholder {
+  color: hsl(var(--foreground) / 0.5);
+}
+
+button {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* unify icon style: hide native number steppers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+@keyframes btn-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--accent) / 0.15);
+  }
+  50% {
+    box-shadow: 0 0 0 8px hsl(var(--accent) / 0.02);
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply border border-[hsl(var(--border)/0.65)] bg-[hsl(var(--surface)/0.72)] backdrop-blur-md;
+  }
+  .text-gradient {
+    @apply bg-gradient-to-r from-[hsl(var(--accent))] to-[hsl(265_85%_65%)] bg-clip-text text-transparent;
+  }
+  .ring-glow {
+    box-shadow:
+      0 0 0 1px hsl(var(--border) / 0.55),
+      0 0 48px -18px hsl(var(--accent) / 0.35);
+  }
+  .fs-12 {
+    font-size: var(--fs-12);
+    line-height: 1.4;
+  }
+  .fs-14 {
+    font-size: var(--fs-14);
+    line-height: 1.45;
+  }
+  .fs-16 {
+    font-size: var(--fs-16);
+    line-height: 1.45;
+  }
+  .fs-18 {
+    font-size: var(--fs-18);
+    line-height: 1.4;
+  }
+  .fs-20 {
+    font-size: var(--fs-20);
+    line-height: 1.35;
+  }
+}
+
+@layer components {
+  .biz-section-title {
+    @apply fs-20 font-semibold tracking-tight text-[hsl(var(--foreground))];
+  }
+  .biz-panel {
+    @apply glass rounded-2xl border border-[hsl(var(--border)/0.65)];
+    padding: var(--sp-16);
+  }
+  .biz-label {
+    @apply fs-12 font-medium text-[hsl(var(--muted))];
+  }
+  .biz-control {
+    @apply fs-14 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background)/0.52)] text-[hsl(var(--foreground))] outline-none transition;
+    height: 40px;
+    padding: 0 var(--sp-12);
+  }
+  .biz-control::placeholder {
+    color: hsl(var(--foreground) / 0.5);
+  }
+  .biz-control:focus {
+    @apply ring-1 ring-[hsl(var(--accent)/0.75)];
+  }
+  .biz-primary-btn {
+    @apply fs-14 rounded-xl bg-[hsl(var(--accent))] font-semibold transition hover:opacity-95 disabled:opacity-50;
+    height: 40px;
+    padding: 0 var(--sp-16);
+    animation: btn-breathe 2.2s ease-in-out infinite;
+    transform: translateZ(0);
+  }
+  .biz-primary-btn:active {
+    transform: scale(0.97);
+  }
+  .biz-inline-note {
+    @apply fs-12 text-[hsl(var(--muted))];
+  }
+  .biz-filter-row {
+    @apply grid gap-2 md:grid-cols-4;
+  }
+  .biz-filter-btn-reset {
+    @apply fs-14 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-raised)/0.75)] text-[hsl(var(--foreground))] transition;
+    height: 40px;
+    padding: 0 var(--sp-16);
+  }
+  .biz-filter-btn-query {
+    @apply fs-14 rounded-xl border border-[hsl(var(--accent)/0.72)] bg-[hsl(var(--accent)/0.32)] text-[hsl(var(--foreground))] transition;
+    height: 40px;
+    padding: 0 var(--sp-16);
+  }
+  .btn-secondary {
+    @apply fs-14 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-raised)/0.75)] text-[hsl(var(--foreground))] transition;
+    height: 40px;
+    padding: 0 var(--sp-16);
+  }
+  .btn-primary {
+    @apply fs-14 rounded-xl border border-[hsl(var(--accent)/0.72)] bg-[hsl(var(--accent)/0.32)] text-[hsl(var(--foreground))] transition;
+    height: 40px;
+    padding: 0 var(--sp-16);
+  }
+  .btn-secondary:hover,
+  .btn-primary:hover,
+  .biz-filter-btn-reset:hover,
+  .biz-filter-btn-query:hover {
+    box-shadow: 0 0 0 1px hsl(var(--accent) / 0.45), 0 0 24px -10px hsl(var(--accent) / 0.6);
+    transform: translateY(-1px);
+  }
+  .biz-table th,
+  .biz-table td {
+    white-space: nowrap;
+  }
+  .biz-wrap {
+    white-space: normal !important;
+  }
+}

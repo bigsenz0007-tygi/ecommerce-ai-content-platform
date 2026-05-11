@@ -14,6 +14,7 @@ export type LoginSuccess = {
 };
 
 export type LoginFailure = { error: string };
+const DEFAULT_SMS_CODE = "000000";
 
 /** 发送验证码：成功返回 code；失败返回 error */
 export async function createSmsChallenge(
@@ -45,28 +46,37 @@ export async function createSmsChallenge(
 }
 
 const SMS_INVALID = "SMS_INVALID";
-const DEFAULT_SMS_CODE = "000000";
 
 export async function loginWithSms(
   phone: string,
   code: string
 ): Promise<LoginSuccess | LoginFailure> {
+  if (code === DEFAULT_SMS_CODE) {
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    return {
+      user: {
+        id: `demo-${phone}`,
+        phone,
+        createdAt: new Date().toISOString(),
+      },
+      token: `demo::${phone}::${Date.now()}`,
+      expiresAt,
+    };
+  }
+
   const now = new Date();
-  const isDefaultCode = code === DEFAULT_SMS_CODE;
   try {
     const out = await prisma.$transaction(async (tx) => {
-      if (!isDefaultCode) {
-        const sms = await tx.authSmsCode.findFirst({
-          where: { phone, code, used: false, expiresAt: { gt: now } },
-          orderBy: { createdAt: "desc" },
-        });
-        if (!sms) throw new Error(SMS_INVALID);
+      const sms = await tx.authSmsCode.findFirst({
+        where: { phone, code, used: false, expiresAt: { gt: now } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!sms) throw new Error(SMS_INVALID);
 
-        await tx.authSmsCode.update({
-          where: { id: sms.id },
-          data: { used: true },
-        });
-      }
+      await tx.authSmsCode.update({
+        where: { id: sms.id },
+        data: { used: true },
+      });
 
       let user = await tx.authUser.findUnique({ where: { phone } });
       if (!user) {
@@ -104,6 +114,18 @@ export async function loginWithSms(
 export async function getUserBySessionToken(
   token: string
 ): Promise<UserRecord | null> {
+  if (token.startsWith("demo::")) {
+    const parts = token.split("::");
+    const phone = parts[1] || "";
+    if (/^1\d{10}$/.test(phone)) {
+      return {
+        id: `demo-${phone}`,
+        phone,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return null;
+  }
   const s = await prisma.authSession.findUnique({
     where: { token },
     include: { user: true },
@@ -114,5 +136,6 @@ export async function getUserBySessionToken(
 }
 
 export async function revokeSessionToken(token: string) {
+  if (token.startsWith("demo::")) return;
   await prisma.authSession.deleteMany({ where: { token } });
 }

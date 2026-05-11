@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { CRITICAL_INLINE_CSS } from "@/lib/critical-inline-css";
 import "./globals.css";
 
 const inter = Inter({
@@ -23,7 +24,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${inter.variable} ${mono.variable} font-sans`}>{children}</body>
+      <body className={`${inter.variable} ${mono.variable} font-sans`}>
+        {/* 外链 CSS 偶发 404 时避免「白底纯文本」误判为断网；完整样式仍由 globals.css 提供 */}
+        <style dangerouslySetInnerHTML={{ __html: CRITICAL_INLINE_CSS }} />
+        {children}
+      </body>
     </html>
   );
 }

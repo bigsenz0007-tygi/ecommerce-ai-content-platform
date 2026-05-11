@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { TrendingLibraryImport } from "@/components/TrendingLibraryImport";
 
 type RuleSource = "auto" | "manual" | "mixed";
 
@@ -81,15 +82,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [connections, setConnections] = useState<
-    { platform: string; connected: boolean; accountName: string; tokenMask: string }[]
-  >([]);
-  const [accountPool, setAccountPool] = useState<
-    { id: string; platform: string; username: string; connected: boolean; lastTestStatus: string; lastTestAt: string }[]
-  >([]);
-  const [loginForm, setLoginForm] = useState<Record<string, { username: string; password: string }>>({});
   const [rules, setRules] = useState<PlatformRuleDraft[]>(DEFAULT_RULES);
-  const [activePlatform, setActivePlatform] = useState("淘宝");
+  const [activePlatform, setActivePlatform] = useState("小红书");
   const [autoFillMode, setAutoFillMode] = useState<"auto_only" | "manual_override">("manual_override");
   const [failureAlertThreshold, setFailureAlertThreshold] = useState(15);
   const [humanReviewSampleRate, setHumanReviewSampleRate] = useState(20);
@@ -118,22 +112,7 @@ export default function SettingsPage() {
     setMinScoreForPublish(j.minScoreForPublish);
     setAutoDeleteRejected(j.autoDeleteRejected);
     setComplianceLevel(j.complianceLevel);
-    const c = await fetch("/api/connections");
-    const cj = (await c.json()) as {
-      connections: { platform: string; connected: boolean; accountName: string; tokenMask: string }[];
-    };
-    setConnections(cj.connections);
-    const poolRes = await fetch("/api/connections/accounts");
-    const poolJson = (await poolRes.json()) as {
-      accounts: { id: string; platform: string; username: string; connected: boolean; lastTestStatus: string; lastTestAt: string }[];
-    };
-    setAccountPool(poolJson.accounts || []);
-    setRules((prev) =>
-      prev.map((r) => ({
-        ...r,
-        source: cj.connections.find((c) => c.platform === r.platform)?.connected ? r.source : "manual",
-      }))
-    );
+    setRules(DEFAULT_RULES);
     setLoading(false);
   }, []);
 
@@ -170,55 +149,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function toggleConnection(platform: string, connect: boolean) {
-    await fetch("/api/connections", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        platform,
-        action: connect ? "connect" : "disconnect",
-      }),
-    });
-    await load();
-  }
-
-  async function loginAndTest(platform: string) {
-    const f = loginForm[platform];
-    if (!f?.username || !f?.password) return;
-    const r = await fetch("/api/connections/accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        platform,
-        username: f.username,
-        password: f.password,
-      }),
-    });
-    const j = (await r.json()) as { error?: string };
-    if (!r.ok) {
-      alert(j.error || "登录测试失败");
-      return;
-    }
-    setLoginForm((prev) => ({ ...prev, [platform]: { username: "", password: "" } }));
-    await load();
-  }
-
-  async function setDefaultAccount(platform: string, username: string) {
-    await fetch("/api/connections/accounts", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "set_default", platform, username }),
-    });
-    await load();
-  }
-
-  async function removeAccount(id: string) {
-    await fetch(`/api/connections/accounts?id=${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-    await load();
-  }
-
   const activeRule = rules.find((r) => r.platform === activePlatform) ?? rules[0]!;
 
   function updateActiveRule<K extends keyof PlatformRuleDraft>(key: K, value: PlatformRuleDraft[K]) {
@@ -242,91 +172,11 @@ export default function SettingsPage() {
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_1fr]">
         <div className="space-y-6">
-          <div className="glass space-y-4 rounded-2xl p-6">
-            <h2 className="text-base font-semibold">一、平台账号接入（生产/发布前置）</h2>
+          <div className="glass space-y-3 rounded-2xl p-6">
+            <h2 className="text-base font-semibold">一、关于平台账号</h2>
             <p className="text-xs text-[hsl(var(--muted))]">
-              支持多平台多账号登录：输入账号密码后进行登录测试，成功后加入账号池，并可设置“发布默认账号”。
+              个人号场景下已下线「登录小红书 / 抖音账号」能力。首页「随便生」改为：用户粘贴平台公开链接 + 选择平台与品类，由系统内置账号维度落库并生成内容；发布侧如需官方授权，请另行对接各平台开放平台。
             </p>
-            <div className="space-y-2">
-              {connections.map((item) => (
-                <div
-                  key={item.platform}
-                  className="rounded-xl border border-[hsl(var(--border)/0.45)] px-3 py-2"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm">{item.platform}</div>
-                      <div className="text-xs text-[hsl(var(--muted))]">
-                        当前发布默认账号：
-                        {item.connected ? `${item.accountName}` : "未设置"}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => void toggleConnection(item.platform, !item.connected)}
-                      className="btn-secondary rounded-lg px-3 py-1.5 text-xs h-auto"
-                    >
-                      {item.connected ? "断开发布默认" : "启用发布默认"}
-                    </button>
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-[1fr_1fr_120px]">
-                    <input
-                      className="biz-control"
-                      placeholder="输入账号"
-                      value={loginForm[item.platform]?.username || ""}
-                      onChange={(e) =>
-                        setLoginForm((prev) => ({
-                          ...prev,
-                          [item.platform]: {
-                            username: e.target.value,
-                            password: prev[item.platform]?.password || "",
-                          },
-                        }))
-                      }
-                    />
-                    <input
-                      className="biz-control"
-                      type="password"
-                      placeholder="输入密码"
-                      value={loginForm[item.platform]?.password || ""}
-                      onChange={(e) =>
-                        setLoginForm((prev) => ({
-                          ...prev,
-                          [item.platform]: {
-                            username: prev[item.platform]?.username || "",
-                            password: e.target.value,
-                          },
-                        }))
-                      }
-                    />
-                    <button
-                      className="btn-primary rounded-xl"
-                      onClick={() => void loginAndTest(item.platform)}
-                    >
-                      登录测试
-                    </button>
-                  </div>
-                  <div className="mt-2 space-y-1">
-                    {accountPool
-                      .filter((x) => x.platform === item.platform)
-                      .map((row) => (
-                        <div key={row.id} className="flex items-center justify-between rounded-lg border border-[hsl(var(--border)/0.4)] px-2 py-1.5 text-xs">
-                          <div>
-                            {row.username} · {row.lastTestStatus === "ok" ? "登录可用" : "登录失败"} · {new Date(row.lastTestAt).toLocaleString()}
-                          </div>
-                          <div className="flex gap-1">
-                            <button className="btn-secondary rounded-lg px-2 py-1 text-[11px] h-auto" onClick={() => void setDefaultAccount(item.platform, row.username)}>
-                              设为默认
-                            </button>
-                            <button className="btn-secondary rounded-lg px-2 py-1 text-[11px] h-auto" onClick={() => void removeAccount(row.id)}>
-                              移除
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
 
           <div className="glass space-y-4 rounded-2xl p-6">
@@ -474,6 +324,15 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="glass space-y-4 rounded-2xl p-6">
+        <h2 className="text-base font-semibold">五、每日爆款推荐库</h2>
+        <p className="text-xs text-[hsl(var(--muted))]">
+          导入的数据用于首页「每日爆款推荐」：按「平台 + 内容赛道」（与随便生相同）筛选后随机展示，每个组合至少需{" "}
+          <strong className="text-[hsl(var(--foreground))]">4</strong> 条素材才会出现推荐卡片；不足时展示缺省提示。
+        </p>
+        <TrendingLibraryImport />
       </div>
 
       <div className="sticky bottom-4 z-20 flex justify-end gap-2">

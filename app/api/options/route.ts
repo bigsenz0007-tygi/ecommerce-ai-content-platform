@@ -1,31 +1,42 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ensureSeedData } from "@/lib/pipeline";
+import {
+  CATEGORY_TRACK_NAMES,
+  CONTENT_FORMATS,
+  CONTENT_GOALS,
+  CONTENT_STYLES,
+  PLATFORM_CHOICES,
+} from "@/lib/content-taxonomy";
 
 export async function GET() {
   await ensureSeedData();
-  const platformOrder = ["淘宝", "京东", "小红书", "抖音"];
-  const categoryOrder = ["美妆个护", "宠物生活", "美食点心", "恋爱生活", "ai创造"];
+  const platformOrder = ["小红书", "抖音"];
 
   const [accounts, categories] = await Promise.all([
-    prisma.account.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.account.findMany({
+      where: { platform: { in: platformOrder } },
+      orderBy: { createdAt: "asc" },
+    }),
     prisma.category.findMany({
-      where: { name: { in: categoryOrder } },
+      where: { name: { in: [...CATEGORY_TRACK_NAMES] } },
       orderBy: { createdAt: "asc" },
     }),
   ]);
 
   const platforms = platformOrder.filter((p) => accounts.some((a) => a.platform === p));
   const categoryMap = new Map(categories.map((c) => [c.name, c]));
-  const orderedCategories = categoryOrder
-    .map((name) => categoryMap.get(name))
-    .filter((x): x is NonNullable<typeof x> => Boolean(x));
+  const orderedCategories = CATEGORY_TRACK_NAMES.map((name) => categoryMap.get(name)).filter(
+    (x): x is NonNullable<typeof x> => Boolean(x)
+  );
 
   return NextResponse.json({
     accounts,
     categories: orderedCategories,
     platforms,
-    objectives: ["涨粉", "互动", "关注", "分享"],
-    formats: ["图文", "视频文字", "纯文字"],
+    platformChoices: [...PLATFORM_CHOICES],
+    objectives: [...CONTENT_GOALS],
+    formats: [...CONTENT_FORMATS],
+    contentStyles: [...CONTENT_STYLES],
   });
 }

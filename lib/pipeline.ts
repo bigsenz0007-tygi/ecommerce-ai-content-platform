@@ -1,4 +1,18 @@
 import { prisma } from "@/lib/db";
+import { analyzeBenchmarkForMimic, generateTextBundleWithBenchmark } from "@/lib/ai-providers";
+import type { BenchmarkSupplementInput } from "@/lib/benchmark-types";
+import { fetchUrlPageSignals } from "@/lib/trending-fetch";
+import { DEFAULT_TRENDING_PICKS } from "@/lib/trending-default-seeds";
+import {
+  CATEGORY_TRACK_NAMES,
+  CONTENT_FORMATS,
+  CONTENT_GOALS,
+  type ContentFormatLabel,
+  type ContentGoal,
+} from "@/lib/content-taxonomy";
+
+export type GenerationObjective = ContentGoal;
+export type ContentFormat = ContentFormatLabel;
 
 const ADJECTIVES = ["臻选", "热卖", "限时", "囤货必入", "口碑爆款"];
 const PHRASES = [
@@ -64,17 +78,36 @@ function placeholderVideo(label: string) {
 }
 
 export type PipelineResult = { created: number; message: string };
-export type GenerationObjective = "涨粉" | "互动" | "关注" | "分享";
-export type ContentFormat = "图文" | "视频文字" | "纯文字";
 
 export type RunOptions = {
-  accountId: string;
+  /** 与 platform 二选一：精准生传账号；随便生可省略，由 platform 解析默认号 */
+  accountId?: string;
+  /** 小红书 | 抖音：随便生无账号时必填，用于绑定系统内置平台账号记录 */
+  platform?: "小红书" | "抖音";
   categoryId: string;
   objective: GenerationObjective;
   contentFormat: ContentFormat;
   count?: number;
   advancedContext?: Record<string, string>;
+  /** 用户对标：链接 + 可选截图 data URL */
+  benchmarkUser?: { link?: string; imageDataUrl?: string };
+  /** 用户补充互动/转化侧写，便于模型与后续数据沉淀（不落库单独字段时写入 processMemo） */
+  benchmarkSupplement?: BenchmarkSupplementInput;
+  /** 每条随机目标与内容格式（随便生） */
+  randomizePerItem?: boolean;
 };
+
+const MAX_STORED_USER_IMAGE = 120_000;
+
+function buildBenchmarkSupplementNotes(s?: BenchmarkSupplementInput): string {
+  if (!s) return "";
+  const i = s.interaction?.trim();
+  const c = s.conversion?.trim();
+  const parts: string[] = [];
+  if (i) parts.push(`【互动表现（用户补充）】${i}`);
+  if (c) parts.push(`【转化亮点（用户补充）】${c}`);
+  return parts.join("\n\n");
+}
 
 export async function ensureSeedData() {
   const settings = await prisma.appSettings.findUnique({ where: { id: "singleton" } });
@@ -91,9 +124,7 @@ export async function ensureSeedData() {
   }
 
   const accountSeeds = [
-    { name: "旗舰店-A", platform: "淘宝", tone: "克制专业、少感叹号" },
     { name: "内容号-B", platform: "抖音", tone: "短句、强节奏、口语化" },
-    { name: "京东店-C", platform: "京东", tone: "参数清晰、信任优先" },
     { name: "小红书号-D", platform: "小红书", tone: "生活化表达、强调体验" },
   ];
   for (const seed of accountSeeds) {
@@ -103,18 +134,26 @@ export async function ensureSeedData() {
     }
   }
 
-  const categorySeeds = [
-    { name: "美妆个护", keywords: "护肤 彩妆 清洁 香氛" },
-    { name: "宠物生活", keywords: "猫狗 养护 玩具 零食" },
-    { name: "美食点心", keywords: "烘焙 零食 甜品 茶饮" },
-    { name: "恋爱生活", keywords: "情感 礼物 约会 仪式感" },
-    { name: "ai创造", keywords: "AI 效率 创作 工具" },
+  const categorySeeds: { name: string; keywords: string }[] = [
+    { name: "生活日常", keywords: "日常 记录 生活感 vlog" },
+    { name: "美妆穿搭", keywords: "妆容 护肤 穿搭 ootd" },
+    { name: "美食探店", keywords: "探店 美食 打卡 口味" },
+    { name: "知识干货", keywords: "教程 清单 方法论 复盘" },
+    { name: "情感文案", keywords: "共鸣 情绪 关系 治愈" },
+    { name: "好物种草", keywords: "种草 测评 性价比 真实体验" },
+    { name: "娱乐剧情", keywords: "剧情 反转 段子 娱乐" },
+    { name: "职场创业", keywords: "职场 效率 创业 成长" },
   ];
   for (const seed of categorySeeds) {
     const exists = await prisma.category.findFirst({ where: { name: seed.name } });
     if (!exists) {
       await prisma.category.create({ data: seed });
     }
+  }
+
+  const trendingCount = await prisma.trendingPick.count();
+  if (trendingCount === 0) {
+    await prisma.trendingPick.createMany({ data: DEFAULT_TRENDING_PICKS });
   }
 }
 
@@ -137,6 +176,8 @@ type Draft = {
   accountName: string;
   accountPlatform: string;
   categoryName: string;
+  objective: GenerationObjective;
+  contentFormat: ContentFormat;
   copyTitle: string;
   copyBody: string;
   imagePrompt: string;
@@ -161,32 +202,18 @@ type Benchmark = {
 };
 
 const BENCHMARK_POOL: Record<string, Benchmark[]> = {
-  淘宝: [
-    {
-      title: "同类热销款：3 秒卖点直达",
-      body: "标题强调“场景 + 核心利益点”，首屏放主图细节对比，降低理解成本。",
-      url: "https://example.com/benchmark/taobao-1",
-      objectiveTags: ["涨粉", "关注"],
-    },
-    {
-      title: "高转化详情节奏",
-      body: "先场景痛点，再参数和服务承诺，结尾加入明确行动引导。",
-      url: "https://example.com/benchmark/taobao-2",
-      objectiveTags: ["分享", "关注"],
-    },
-  ],
   抖音: [
     {
       title: "15 秒结构化短视频",
       body: "0-3 秒钩子，3-10 秒卖点展示，10-15 秒 CTA，字幕保持短句。",
       url: "https://example.com/benchmark/douyin-1",
-      objectiveTags: ["涨粉", "关注"],
+      objectiveTags: ["涨粉引流", "品牌曝光"],
     },
     {
       title: "互动型评论引导脚本",
       body: "结尾提出二选一问题，引导评论区互动，提升完播后互动率。",
       url: "https://example.com/benchmark/douyin-2",
-      objectiveTags: ["互动", "分享"],
+      objectiveTags: ["互动种草", "带货转化"],
     },
   ],
   小红书: [
@@ -194,35 +221,33 @@ const BENCHMARK_POOL: Record<string, Benchmark[]> = {
       title: "高收藏笔记范式",
       body: "封面承诺结果，正文分步骤、分场景，减少夸张表达。",
       url: "https://example.com/benchmark/xhs-1",
-      objectiveTags: ["分享", "关注"],
+      objectiveTags: ["互动种草", "涨粉引流"],
     },
-  ],
-  京东: [
     {
-      title: "参数与信任优先",
-      body: "首段给出适用人群与参数卖点，随后补充服务和保障信息。",
-      url: "https://example.com/benchmark/jd-1",
-      objectiveTags: ["关注", "涨粉"],
+      title: "好物测评对比结构",
+      body: "痛点引入—对比维度—结论与购买建议，语气真实克制。",
+      url: "https://example.com/benchmark/xhs-2",
+      objectiveTags: ["带货转化", "品牌曝光"],
     },
   ],
 };
 
 function pickBenchmark(platform: string, objective: GenerationObjective): Benchmark {
-  const pool = BENCHMARK_POOL[platform] ?? BENCHMARK_POOL["淘宝"]!;
+  const pool = BENCHMARK_POOL[platform] ?? BENCHMARK_POOL["小红书"]!;
   const byObjective = pool.filter((x) => !x.objectiveTags || x.objectiveTags.includes(objective));
   return randomPick(byObjective.length > 0 ? byObjective : pool);
 }
 
 function objectiveHint(objective: GenerationObjective): string {
   switch (objective) {
-    case "涨粉":
-      return "首屏强调差异化价值，提高关注意愿";
-    case "互动":
-      return "加入可回答问题，鼓励评论参与";
-    case "关注":
-      return "强化账号价值与长期订阅理由";
-    case "分享":
-      return "内容结构简洁，便于用户二次传播";
+    case "涨粉引流":
+      return "强调关注理由与系列感，首屏给清晰价值承诺";
+    case "带货转化":
+      return "突出卖点、对比与行动呼吁，减少空泛形容词";
+    case "品牌曝光":
+      return "强化记忆点、调性与场景联想，适度重复核心符号";
+    case "互动种草":
+      return "用提问与共鸣引导评论，降低决策门槛";
     default:
       return "保持信息清晰与行动引导";
   }
@@ -230,12 +255,14 @@ function objectiveHint(objective: GenerationObjective): string {
 
 function formatHint(format: ContentFormat): string {
   switch (format) {
-    case "图文":
-      return "文案按封面句 + 三点卖点组织";
-    case "视频文字":
-      return "输出镜头脚本与字幕短句";
-    case "纯文字":
-      return "输出无图依赖的可发布文本";
+    case "图文笔记":
+      return "封面句 + 小标题 + 分点，适配信息流浏览";
+    case "短视频脚本":
+      return "按镜头时长写台词，短句分行，前 3 秒给结论";
+    case "口播文案":
+      return "口语化分段，可直接对着镜头念";
+    case "合集系列":
+      return "开篇总览 + 本期亮点 + 与系列其它期的呼应";
     default:
       return "通用内容结构";
   }
@@ -258,13 +285,14 @@ function clampTextByChars(input: string, maxChars: number): string {
 
 function objectiveClosing(objective: GenerationObjective): string {
   switch (objective) {
-    case "互动":
-      return "评论区告诉我你的选择，我会继续更新。";
-    case "关注":
-      return "点个关注，后续持续更新同类实测内容。";
-    case "分享":
-      return "如果有帮助，转发给需要的朋友。";
-    case "涨粉":
+    case "涨粉引流":
+      return "关注我，后面持续更同赛道干货。";
+    case "带货转化":
+      return "需要链接或优惠说明可留言，理性下单。";
+    case "品牌曝光":
+      return "欢迎收藏转发给同频朋友，一起记住这个品牌。";
+    case "互动种草":
+      return "你更心动哪一款？评论区聊聊。";
     default:
       return "喜欢这类内容可以关注我，后续持续更新。";
   }
@@ -275,11 +303,14 @@ function makeBodyByFormatAndObjective(
   objective: GenerationObjective,
   baseBody: string
 ): string {
-  if (format === "纯文字") {
-    return `${baseBody}\n${objectiveClosing(objective)}`;
+  if (format === "口播文案") {
+    return `${baseBody}\n【口播】语气像面对面聊天，短句换气。\n${objectiveClosing(objective)}`;
   }
-  if (format === "视频文字") {
+  if (format === "短视频脚本") {
     return `${baseBody}\n【字幕建议】短句分行，前3秒给结论。\n${objectiveClosing(objective)}`;
+  }
+  if (format === "合集系列") {
+    return `${baseBody}\n【合集】开篇说明系列主题，本期亮点单独一段。\n【配图建议】封面统一风格，内页保持系列识别度。\n${objectiveClosing(objective)}`;
   }
   return `${baseBody}\n【配图建议】首图放核心卖点，次图放细节对比。\n${objectiveClosing(objective)}`;
 }
@@ -290,15 +321,19 @@ function enforceFormatAssets(
   videoUrl: string
 ): { imageUrl: string; videoUrl: string; fixes: string[] } {
   const fixes: string[] = [];
-  if (format === "图文") {
+  if (format === "图文笔记" || format === "合集系列") {
     if (!imageUrl) fixes.push("补齐图文图片素材");
     if (videoUrl) fixes.push("图文任务移除视频素材");
     return { imageUrl: imageUrl || placeholderImage("图文素材"), videoUrl: "", fixes };
   }
-  if (format === "视频文字") {
+  if (format === "短视频脚本") {
     if (!videoUrl) fixes.push("补齐视频素材");
     if (imageUrl) fixes.push("视频任务移除图片素材");
     return { imageUrl: "", videoUrl: videoUrl || placeholderVideo("视频素材"), fixes };
+  }
+  if (format === "口播文案") {
+    if (imageUrl || videoUrl) fixes.push("口播文案任务移除多媒体素材");
+    return { imageUrl: "", videoUrl: "", fixes };
   }
   if (imageUrl || videoUrl) fixes.push("纯文字任务移除多媒体素材");
   return { imageUrl: "", videoUrl: "", fixes };
@@ -333,7 +368,7 @@ function validateAndFixOutput(params: {
     if (nextBody !== oldBody) fixes.push(`正文长度裁切至${charLimit}字内`);
   }
 
-  // 目标导向补句：确保“互动/关注/分享/涨粉”语义与选择一致
+  // 目标导向补句：与所选「内容目标」语义一致
   const closing = objectiveClosing(params.objective);
   if (!nextBody.includes(closing)) {
     nextBody = `${nextBody}\n${closing}`.trim();
@@ -363,6 +398,60 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
   const banned = JSON.parse(settings.bannedWords || "[]") as string[];
 
+  const storedUserLink = options?.benchmarkUser?.link?.trim() || "";
+  let storedUserImage = (options?.benchmarkUser?.imageDataUrl || "").trim();
+  if (storedUserImage.length > MAX_STORED_USER_IMAGE) {
+    storedUserImage = storedUserImage.slice(0, MAX_STORED_USER_IMAGE);
+  }
+
+  let linkPreview = "";
+  if (storedUserLink) {
+    const sig = await fetchUrlPageSignals(storedUserLink, 7000);
+    linkPreview = [
+      sig.ogTitle && `【OG标题】${sig.ogTitle}`,
+      sig.ogDescription && `【OG摘要】${sig.ogDescription}`,
+      sig.plainPreview?.length ? `【正文摘录】${sig.plainPreview}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 8000);
+  }
+
+  const supplementBlock = buildBenchmarkSupplementNotes(options?.benchmarkSupplement);
+
+  let userBenchmarkSummary: string | null = null;
+  if (storedUserLink || storedUserImage) {
+    userBenchmarkSummary = await analyzeBenchmarkForMimic({
+      link: storedUserLink || undefined,
+      linkPreview: linkPreview || undefined,
+      imageDataUrl: storedUserImage || undefined,
+      userNotes: supplementBlock || undefined,
+    });
+    if (!userBenchmarkSummary) {
+      userBenchmarkSummary = [
+        storedUserLink ? `用户对标链接：${storedUserLink}` : "",
+        linkPreview ? `链接正文摘录（前段）：\n${linkPreview.slice(0, 2500)}` : "",
+        storedUserImage ? "用户已上传对标截图（当前环境无可用多模态模型时，请配置支持视觉的模型）。" : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+  }
+
+  const fromContext = options?.advancedContext
+    ? Object.entries(options.advancedContext)
+        .filter(([, v]) => !!v)
+        .map(([k, v]) => `${k}:${v}`)
+        .join("\n")
+    : "";
+  const supHints: string[] = [];
+  const bi = options?.benchmarkSupplement?.interaction?.trim();
+  const bc = options?.benchmarkSupplement?.conversion?.trim();
+  if (bi) supHints.push(`互动侧写:${bi}`);
+  if (bc) supHints.push(`转化侧写:${bc}`);
+  const supplementHints = supHints.join("｜");
+  const advancedHintsForAi = [fromContext, supplementHints].filter(Boolean).join("\n");
+
   const accountList = await prisma.account.findMany();
   const categoryList = await prisma.category.findMany();
   if (accountList.length === 0 || categoryList.length === 0) {
@@ -372,36 +461,49 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
   const count = options?.count ?? settings.dailyCount;
   const premiumSlots = Math.min(settings.premiumSlots, count);
 
-  const selectedAccount = options
-    ? await prisma.account.findUnique({ where: { id: options.accountId } })
-    : null;
   const selectedCategory = options
     ? await prisma.category.findUnique({ where: { id: options.categoryId } })
     : null;
 
-  if (options && (!selectedAccount || !selectedCategory)) {
-    return { created: 0, message: "所选账号或分类不存在，请重新选择" };
+  let selectedAccount: { id: string; name: string; platform: string } | null = null;
+  if (options?.accountId) {
+    selectedAccount = await prisma.account.findUnique({ where: { id: options.accountId } });
+  } else if (options?.platform) {
+    selectedAccount = await prisma.account.findFirst({
+      where: { platform: options.platform },
+      orderBy: { createdAt: "asc" },
+    });
   }
 
-  const targetObjective: GenerationObjective = options?.objective ?? "涨粉";
-  const targetFormat: ContentFormat = options?.contentFormat ?? "图文";
+  if (options && (!selectedAccount || !selectedCategory)) {
+    return { created: 0, message: "所选账号或分类不存在，请重新选择或检查平台配置" };
+  }
+
+  const targetObjective: GenerationObjective = options?.objective ?? "涨粉引流";
+  const targetFormat: ContentFormat = options?.contentFormat ?? "图文笔记";
   const selectedLength = options?.advancedContext?.["内容长度"];
+  const randomizePerItem = options?.randomizePerItem === true;
+  const OBJ_POOL: GenerationObjective[] = [...CONTENT_GOALS];
+  const FMT_POOL: ContentFormat[] = [...CONTENT_FORMATS];
 
   const drafts: Draft[] = [];
   for (let i = 0; i < count; i++) {
     const account = selectedAccount ?? randomPick(accountList);
     const category = selectedCategory ?? randomPick(categoryList);
+    const rowObjective = randomizePerItem ? randomPick(OBJ_POOL) : targetObjective;
+    const rowFormat = randomizePerItem ? randomPick(FMT_POOL) : targetFormat;
     const copy = mockCopy(account.name, category.name);
-    const advancedHints = options?.advancedContext
+    const fromCtx = options?.advancedContext
       ? Object.entries(options.advancedContext)
           .filter(([, v]) => !!v)
           .map(([k, v]) => `【${k}】${v}`)
           .join("\n")
       : "";
+    const advancedHints = [fromCtx, supplementBlock].filter(Boolean).join("\n");
     const composed = makeBodyByFormatAndObjective(
-      targetFormat,
-      targetObjective,
-      `${copy.body}\n【目标】${objectiveHint(targetObjective)}\n【格式】${formatHint(targetFormat)}${
+      rowFormat,
+      rowObjective,
+      `${copy.body}\n【目标】${objectiveHint(rowObjective)}\n【格式】${formatHint(rowFormat)}${
         advancedHints ? `\n${advancedHints}` : ""
       }`
     );
@@ -413,6 +515,8 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
       accountName: account.name,
       accountPlatform: account.platform,
       categoryName: category.name,
+      objective: rowObjective,
+      contentFormat: rowFormat,
       copyTitle: copy.title,
       copyBody: composed,
       imagePrompt: mockImagePrompt(category.name),
@@ -439,18 +543,48 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
     let body = d.copyBody;
     let imgUrl = placeholderImage(d.categoryName);
     let vidUrl = placeholderVideo(d.categoryName);
+    let imagePrompt = d.imagePrompt;
+    let videoScript = d.videoScript;
+    let scoreCompliance = d.scoreCompliance;
+    let scoreQuality = d.scoreQuality;
+    let scoreConvert = d.scoreConvert;
+    let scoreTotal = d.scoreTotal;
+
+    if (userBenchmarkSummary) {
+      const aiBundle = await generateTextBundleWithBenchmark({
+        platform: d.accountPlatform,
+        accountName: d.accountName,
+        categoryName: d.categoryName,
+        objective: d.objective,
+        contentFormat: d.contentFormat,
+        advancedHints: advancedHintsForAi,
+        benchmarkSummary: userBenchmarkSummary,
+      });
+      if (aiBundle) {
+        title = aiBundle.title;
+        body = makeBodyByFormatAndObjective(d.contentFormat, d.objective, aiBundle.body);
+        imagePrompt = aiBundle.imagePrompt;
+        videoScript = aiBundle.videoScript;
+        const combined = `${title}\n${body}`;
+        const sc = scoreContent(combined, banned);
+        scoreCompliance = sc.compliance;
+        scoreQuality = sc.quality;
+        scoreConvert = sc.convert;
+        scoreTotal = sc.total;
+      }
+    }
 
     if (tier === "premium") {
-      title = `${d.copyTitle} · Pro`;
-      body = `${d.copyBody}\n\n—— 精修版：语气更收敛、卖点更聚焦，强化${targetObjective}目标`;
+      title = `${title} · Pro`;
+      body = `${body}\n\n—— 精修版：语气更收敛、卖点更聚焦，强化${d.objective}目标`;
       imgUrl = placeholderImage(`${d.categoryName} Pro`);
     }
 
     const fixed = validateAndFixOutput({
       title,
       body,
-      objective: targetObjective,
-      format: targetFormat,
+      objective: d.objective,
+      format: d.contentFormat,
       contentLength: selectedLength,
       imageUrl: imgUrl,
       videoUrl: vidUrl,
@@ -460,7 +594,12 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
     imgUrl = fixed.imageUrl;
     vidUrl = fixed.videoUrl;
 
-    const benchmark = pickBenchmark(d.accountPlatform, targetObjective);
+    const benchmark = pickBenchmark(d.accountPlatform, d.objective);
+    const benchmarkTitle = userBenchmarkSummary ? "对标（用户提交·AI理解）" : benchmark.title;
+    const benchmarkBody = userBenchmarkSummary
+      ? userBenchmarkSummary.slice(0, 800)
+      : benchmark.body;
+    const benchmarkUrl = storedUserLink || benchmark.url;
 
     await prisma.task.create({
       data: {
@@ -468,24 +607,32 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
         categoryId: d.categoryId,
         status: "review_ready",
         tier,
-        objective: targetObjective,
-        contentFormat: targetFormat,
+        objective: d.objective,
+        contentFormat: d.contentFormat,
         copyTitle: title,
         copyBody: body,
-        imagePrompt: d.imagePrompt,
+        imagePrompt,
         imageUrl: imgUrl,
-        videoScript: d.videoScript,
+        videoScript,
         videoUrl: vidUrl,
-        benchmarkTitle: benchmark.title,
-        benchmarkBody: benchmark.body,
-        benchmarkUrl: benchmark.url,
-        scoreCompliance: d.scoreCompliance,
-        scoreQuality: d.scoreQuality,
-        scoreConvert: d.scoreConvert,
-        scoreTotal: d.scoreTotal,
+        benchmarkTitle,
+        benchmarkBody,
+        benchmarkUrl,
+        benchmarkUserLink: storedUserLink,
+        benchmarkUserImage: storedUserImage,
+        scoreCompliance,
+        scoreQuality,
+        scoreConvert,
+        scoreTotal,
         processMemo: [
-          d.hasAdvancedHints ? "精准生：已应用高级约束字段" : "随便生：按平台规范与爆文结构自动生成",
-          `校验通过：格式=${targetFormat}，目标=${targetObjective}${selectedLength ? `，长度=${selectedLength}` : ""}`,
+          randomizePerItem
+            ? "随便生：对标链接仿写，每条随机目标/格式"
+            : d.hasAdvancedHints
+              ? "精准生：已应用高级约束字段"
+              : "按平台规范与爆文结构自动生成",
+          userBenchmarkSummary ? "对标：已解析用户链接/截图并参与仿写" : "对标：系统默认结构参考",
+          supplementBlock ? "对标补充：用户已填互动/转化侧写" : "对标补充：未填",
+          `校验通过：格式=${d.contentFormat}，目标=${d.objective}${selectedLength ? `，长度=${selectedLength}` : ""}`,
           fixed.validation.fixes.length > 0 ? `自动修正：${fixed.validation.fixes.join("；")}` : "自动修正：无",
         ].join("｜"),
       },
@@ -495,7 +642,9 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
 
   return {
     created,
-    message: `已按“${targetObjective} / ${targetFormat}”生成 ${created} 条任务（${premiumSlots} 条 premium）`,
+    message: randomizePerItem
+      ? `随便生已完成：共 ${created} 条（对标仿写，每条随机目标/内容格式；${premiumSlots} 条 premium）`
+      : `已按“${targetObjective} / ${targetFormat}”生成 ${created} 条任务（${premiumSlots} 条 premium）`,
   };
 }
 

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node ./node_modules/next/dist/bin/next dev -p 3100",
+    "dev:clean": "rm -rf .next && node ./node_modules/next/dist/bin/next dev -p 3100",
     "dev:3101": "node ./node_modules/next/dist/bin/next dev -p 3101",
     "build": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/next/dist/bin/next build",
     "start": "node ./node_modules/next/dist/bin/next start -p 3100",

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { StatCard } from "@/components/StatCard";
 import { BizDropdown } from "@/components/BizDropdown";
+import { PLATFORM_CHOICES } from "@/lib/content-taxonomy";
+import { DailyViralPicks } from "@/components/DailyViralPicks";
+import { isAllowedBenchmarkUrl } from "@/lib/benchmark-link";
 
 type Stats = {
   totalTasks: number;
@@ -23,11 +26,13 @@ type Stats = {
 };
 
 type OptionData = {
-  platforms: ("淘宝" | "京东" | "小红书" | "抖音")[];
+  platforms: ("小红书" | "抖音")[];
+  platformChoices?: ("抖音" | "小红书")[];
   accounts: { id: string; name: string; platform: string }[];
   categories: { id: string; name: string }[];
-  objectives: ("涨粉" | "互动" | "关注" | "分享")[];
-  formats: ("图文" | "视频文字" | "纯文字")[];
+  objectives: string[];
+  formats: string[];
+  contentStyles?: string[];
 };
 
 export default function DashboardPage() {
@@ -39,18 +44,8 @@ export default function DashboardPage() {
   const [categoryId, setCategoryId] = useState("");
   const [objective, setObjective] = useState("");
   const [contentFormat, setContentFormat] = useState("");
+  const [preciseStyle, setPreciseStyle] = useState("");
   const [countInput, setCountInput] = useState("");
-  const [accountPersona, setAccountPersona] = useState("");
-  const [targetAudience, setTargetAudience] = useState("");
-  const [productStage, setProductStage] = useState("");
-  const [contentScenario, setContentScenario] = useState("");
-  const [sellingFocus, setSellingFocus] = useState("");
-  const [complianceFilter, setComplianceFilter] = useState("");
-  const [publishNode, setPublishNode] = useState("");
-  const [contentLength, setContentLength] = useState("");
-  const [toneStrength, setToneStrength] = useState("");
-  const [competitiveBenchmark, setCompetitiveBenchmark] = useState("");
-  const [contentStyle, setContentStyle] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [auth, setAuth] = useState<{ loggedIn: boolean }>({ loggedIn: false });
@@ -61,6 +56,8 @@ export default function DashboardPage() {
     actionLabel: string;
     actionHref: string;
   } | null>(null);
+  const [benchmarkLink, setBenchmarkLink] = useState("");
+  const [benchmarkImageDataUrl, setBenchmarkImageDataUrl] = useState("");
 
   const load = useCallback(async () => {
     const r = await fetch("/api/stats");
@@ -100,9 +97,29 @@ export default function DashboardPage() {
     if (!inPlatform) setAccountId("");
   }, [platform, options, accountId]);
 
+  useEffect(() => {
+    if (mode !== "random" || !benchmarkLink.trim()) return;
+    const inferred = inferPlatformFromUrl(benchmarkLink.trim());
+    if (inferred) setPlatform(inferred);
+  }, [benchmarkLink, mode]);
+
   async function runGenerate() {
-    if (!platform || !accountId || !categoryId || (mode === "precise" && (!objective || !contentFormat))) {
-      emitToast("请选择内容", "继续填写", "/dashboard");
+    if (mode === "random") {
+      if (!benchmarkLink.trim() || !platform || !categoryId) {
+        emitToast("请填写对标链接并选择平台与分类", "继续填写", "/dashboard");
+        return;
+      }
+      if (!isAllowedBenchmarkUrl(benchmarkLink.trim())) {
+        emitToast("请输入小红书或抖音的有效笔记/视频链接", "继续填写", "/dashboard");
+        return;
+      }
+      const inferred = inferPlatformFromUrl(benchmarkLink.trim());
+      if (inferred && platform && inferred !== platform) {
+        emitToast("链接所属平台与所选平台不一致，请检查", "继续填写", "/dashboard");
+        return;
+      }
+    } else if (!platform || !accountId || !categoryId || !objective || !contentFormat || !preciseStyle) {
+      emitToast("请完整填写精准生筛选项（含内容风格）", "继续填写", "/dashboard");
       return;
     }
     const parsedCount = Number(countInput || 0);
@@ -110,17 +127,13 @@ export default function DashboardPage() {
       emitToast("请输入数量", "继续填写", "/dashboard");
       return;
     }
-    setLoading(true);
-    setMsg("");
     const safeCount = mode === "random" ? Math.max(1, Math.min(10, parsedCount)) : Math.max(1, Math.min(50, parsedCount));
-    if (!auth.loggedIn && mode !== "random") {
+    if (mode !== "random" && !auth.loggedIn) {
       emitToast("请先登录后使用精准生", "去登录", "/login?next=/dashboard");
       return;
     }
-    if (!auth.loggedIn && safeCount > 3) {
-      emitToast("未登录最多生成3条图文", "去登录", "/login?next=/dashboard");
-      return;
-    }
+    setLoading(true);
+    setMsg("");
     const heavy = mode === "precise" ? safeCount >= 8 : safeCount >= 7;
     const reviewHref = buildReviewHref(platform, mode === "precise" ? objective : "");
     const contentHref = buildContentHref(platform);
@@ -135,33 +148,39 @@ export default function DashboardPage() {
     }
     const start = Date.now();
     try {
+      const payload =
+        mode === "random"
+          ? {
+              mode: "random" as const,
+              platform: platform as "小红书" | "抖音",
+              categoryId,
+              count: safeCount,
+              benchmarkUser: {
+                link: benchmarkLink.trim(),
+              },
+            }
+          : {
+              mode: "precise" as const,
+              accountId,
+              categoryId,
+              objective,
+              contentFormat,
+              count: safeCount,
+              advancedContext: {
+                内容风格: preciseStyle,
+              },
+              benchmarkUser:
+                benchmarkLink.trim() || benchmarkImageDataUrl
+                  ? {
+                      link: benchmarkLink.trim() || undefined,
+                      imageDataUrl: benchmarkImageDataUrl || undefined,
+                    }
+                  : undefined,
+            };
       const r = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          accountId,
-          categoryId,
-          objective,
-          contentFormat,
-          count: safeCount,
-          advancedContext:
-            mode === "precise"
-              ? {
-                  账号人设: accountPersona,
-                  目标人群: targetAudience,
-                  产品阶段: productStage,
-                  内容场景: contentScenario,
-                  卖点侧重: sellingFocus,
-                  合规过滤: complianceFilter,
-                  发布节点: publishNode,
-                  内容长度: contentLength,
-                  语气强度: toneStrength,
-                  竞品对标: competitiveBenchmark,
-                  内容风格: contentStyle,
-                }
-              : {},
-        }),
+        body: JSON.stringify(payload),
       });
       const j = (await r.json()) as { message?: string; error?: string };
       if (!r.ok) {
@@ -221,6 +240,24 @@ export default function DashboardPage() {
         />
       </div>
 
+      <DailyViralPicks
+        categories={options?.categories || []}
+        onReplicate={({ url, platform: pf, trackName }) => {
+          setBenchmarkLink(url);
+          setPlatform(pf);
+          const cat = options?.categories?.find((c) => c.name === trackName);
+          if (cat) setCategoryId(cat.id);
+          if (typeof window !== "undefined") {
+            window.scrollTo({ top: 420, behavior: "smooth" });
+          }
+          emitToast(
+            cat ? "已填入复刻链接、平台与内容赛道，可调整数量后开生。" : "已填入复刻链接与平台；请手动选择内容赛道。",
+            "好的",
+            "/dashboard",
+          );
+        }}
+      />
+
       <div>
         <div className="mb-3 fs-20 font-semibold tracking-tight text-[hsl(var(--foreground))]">
           Tygi！立即开干吧！
@@ -243,32 +280,56 @@ export default function DashboardPage() {
         </div>
         {!auth.loggedIn ? (
           <div className="mb-2 fs-12 text-[hsl(var(--muted))]">
-            当前为体验模式：仅支持随便生，最多3条图文。完整功能请先登录。
+            随便生无需登录：填写对标链接并选择平台与分类即可 1～10 条。精准生需先登录本系统账号。
           </div>
         ) : null}
         <div className="biz-panel ring-glow">
+          {mode === "random" ? (
+            <div className="mb-3 space-y-2">
+              <label className="block fs-12">
+                <span className="text-[hsl(var(--muted))]">
+                  <span className="text-[hsl(var(--accent))]">*</span> 对标链接（小红书 / 抖音）
+                </span>
+                <input
+                  className="biz-control mt-1 w-full"
+                  placeholder="粘贴笔记或分享链接，如 xiaohongshu.com / douyin.com …"
+                  value={benchmarkLink}
+                  onChange={(e) => setBenchmarkLink(e.target.value)}
+                />
+              </label>
+              <p className="fs-12 text-[hsl(var(--muted))]">
+                AI 将抓取链接可访问的正文摘要并仿照风格生成内容；未配置模型 Key 时使用本地模板兜底。
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-3">
-            <FieldRow label="平台" required>
+            <FieldRow label="内容平台" required>
               <BizDropdown
                 className="w-full"
                 value={platform}
                 placeholder="请选择"
-                options={(options?.platforms || []).map((p) => ({ label: p, value: p }))}
+                options={(mode === "random" ? options?.platformChoices ?? [...PLATFORM_CHOICES] : options?.platforms || []).map(
+                  (p) => ({ label: p, value: p })
+                )}
                 onChange={setPlatform}
               />
             </FieldRow>
-            <FieldRow label="账号" required>
-              <BizDropdown
-                className="w-full"
-                value={accountId}
-                placeholder="请选择"
-                onChange={setAccountId}
-                options={(options?.accounts || [])
-                  .filter((a) => a.platform === platform)
-                  .map((a) => ({ label: a.name, value: a.id }))}
-              />
-            </FieldRow>
-            <FieldRow label="品类" required>
+            {mode === "precise" ? (
+              <FieldRow label="发布账号" required>
+                <BizDropdown
+                  className="w-full"
+                  value={accountId}
+                  placeholder="请选择"
+                  onChange={setAccountId}
+                  options={(options?.accounts || [])
+                    .filter((a) => a.platform === platform)
+                    .map((a) => ({ label: a.name, value: a.id }))}
+                />
+              </FieldRow>
+            ) : (
+              <div className="hidden md:block" aria-hidden />
+            )}
+            <FieldRow label="内容赛道" required>
               <BizDropdown
                 className="w-full"
                 value={categoryId}
@@ -279,7 +340,7 @@ export default function DashboardPage() {
             </FieldRow>
             {mode === "precise" ? (
               <>
-                <FieldRow label="目标" required>
+                <FieldRow label="内容目标" required>
                   <BizDropdown
                     className="w-full"
                     value={objective}
@@ -288,7 +349,7 @@ export default function DashboardPage() {
                     onChange={setObjective}
                   />
                 </FieldRow>
-                <FieldRow label="格式" required>
+                <FieldRow label="内容格式" required>
                   <BizDropdown
                     className="w-full"
                     value={contentFormat}
@@ -297,7 +358,16 @@ export default function DashboardPage() {
                     onChange={setContentFormat}
                   />
                 </FieldRow>
-                <FieldRow label="数量" required>
+                <FieldRow label="内容风格" required>
+                  <BizDropdown
+                    className="w-full"
+                    value={preciseStyle}
+                    placeholder="请选择"
+                    options={(options?.contentStyles || []).map((s) => ({ label: s, value: s }))}
+                    onChange={setPreciseStyle}
+                  />
+                </FieldRow>
+                <FieldRow label="内容数量" required>
                   <input
                     type="number"
                     min={1}
@@ -311,7 +381,7 @@ export default function DashboardPage() {
               </>
             ) : (
               <>
-                <FieldRow label="数量" required>
+                <FieldRow label="内容数量" required>
                   <input
                     type="number"
                     min={1}
@@ -326,24 +396,59 @@ export default function DashboardPage() {
             )}
           </div>
           {mode === "precise" ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <FieldRow label="账号人设"><BizDropdown placeholder="请选择" value={accountPersona} onChange={setAccountPersona} options={["专业测评官","软萌种草博主","高冷极简风","平价学生党","职场精致党","宝妈分享家","硬核技术流"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="目标人群"><BizDropdown placeholder="请选择" value={targetAudience} onChange={setTargetAudience} options={["学生党","职场女性","敏感肌人群","宝妈群体","银发族","健身爱好者","预算敏感用户"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="产品阶段"><BizDropdown placeholder="请选择" value={productStage} onChange={setProductStage} options={["新品首发","日常在售","爆款维护","清仓促销","预售预热","联名限定"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="内容场景"><BizDropdown placeholder="请选择" value={contentScenario} onChange={setContentScenario} options={["日常使用分享","节日促销种草","痛点解决方案","竞品对比测评","场景化搭配推荐","干货科普"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="卖点侧重"><BizDropdown placeholder="请选择" value={sellingFocus} onChange={setSellingFocus} options={["功效效果","成分安全","性价比","颜值设计","口碑背书","功能实用性"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="合规过滤"><BizDropdown placeholder="请选择" value={complianceFilter} onChange={setComplianceFilter} options={["禁用极限词","禁用医疗宣称","禁用平台敏感词","无过滤"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="发布节点"><BizDropdown placeholder="请选择" value={publishNode} onChange={setPublishNode} options={["日常通用","618","双11","女神节","开学季","年货节","618预售","双11预热"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="内容长度"><BizDropdown placeholder="请选择" value={contentLength} onChange={setContentLength} options={["短标题（15字内）","短句（30字内）","短笔记（300字内）","中长笔记（300-800字）","长详情（800字以上）"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="语气强度"><BizDropdown placeholder="请选择" value={toneStrength} onChange={setToneStrength} options={["温和种草","客观测评","强力安利","理性分析","幽默接地气"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="竞品对标"><BizDropdown placeholder="请选择" value={competitiveBenchmark} onChange={setCompetitiveBenchmark} options={["不对标","对标品类TOP10","对标指定竞品"].map((v)=>({label:v,value:v}))} /></FieldRow>
-              <FieldRow label="内容风格"><BizDropdown placeholder="请选择" value={contentStyle} onChange={setContentStyle} options={["日系清新","韩系ins风","欧美极简风","国潮国风","小众文艺风","硬核科技风"].map((v)=>({label:v,value:v}))} /></FieldRow>
+            <div className="mt-3 border-t border-[hsl(var(--border)/0.35)] pt-3">
+              <div className="mb-2 fs-13 font-medium text-[hsl(var(--foreground))]">对标内容（可选）</div>
+              <p className="mb-2 fs-12 text-[hsl(var(--muted))]">
+                粘贴链接或上传截图，便于模型对齐风格；不填则仅按品类与平台规则生成。
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block fs-12">
+                  <span className="text-[hsl(var(--muted))]">对标链接</span>
+                  <input
+                    className="biz-control mt-1 w-full"
+                    placeholder="https://..."
+                    value={benchmarkLink}
+                    onChange={(e) => setBenchmarkLink(e.target.value)}
+                  />
+                </label>
+                <label className="block fs-12">
+                  <span className="text-[hsl(var(--muted))]">对标截图</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="biz-control mt-1 w-full !py-2 fs-12"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) {
+                        setBenchmarkImageDataUrl("");
+                        return;
+                      }
+                      if (f.size > 2 * 1024 * 1024) {
+                        emitToast("截图请小于 2MB", "确定", "/dashboard");
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => setBenchmarkImageDataUrl(String(reader.result || ""));
+                      reader.readAsDataURL(f);
+                    }}
+                  />
+                  {benchmarkImageDataUrl ? (
+                    <button
+                      type="button"
+                      className="mt-1 fs-12 text-[hsl(var(--accent))]"
+                      onClick={() => setBenchmarkImageDataUrl("")}
+                    >
+                      清除截图
+                    </button>
+                  ) : null}
+                </label>
+              </div>
             </div>
           ) : null}
           <div className="mt-2 fs-12 text-[hsl(var(--muted))]">
             {mode === "random"
-              ? "随便生：不限制图文/视频/纯文类型，自动按平台基础规范与爆文结构随机生成。"
-              : "精准生：按基础字段 + 高级约束字段定向生产，更适合投放和复盘。"}
+              ? "随便生：基于对标链接解析风格，每条随机「内容目标 + 内容格式」，一次 1～10 条；无需选择账号。"
+              : "精准生：按内容平台、赛道、目标、格式、风格与数量定向生成；可选对标链接/截图强化仿写。"}
           </div>
         </div>
         <div className="mt-3 flex justify-center">
@@ -375,6 +480,17 @@ export default function DashboardPage() {
       ) : null}
     </div>
   );
+}
+
+function inferPlatformFromUrl(url: string): "" | "小红书" | "抖音" {
+  try {
+    const h = new URL(url.trim()).hostname.toLowerCase();
+    if (h.includes("xiaohongshu.com") || h.includes("xhslink.com") || h.includes("xhs.cn")) return "小红书";
+    if (h.includes("douyin.com") || h.includes("iesdouyin.com") || h.includes("amemv.com")) return "抖音";
+    return "";
+  } catch {
+    return "";
+  }
 }
 
 function FieldRow({

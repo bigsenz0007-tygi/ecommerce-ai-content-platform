@@ -66,6 +66,10 @@ model Task {
   benchmarkTitle String   @default("")
   benchmarkBody  String   @default("")
   benchmarkUrl   String   @default("")
+  /// 用户填写的对标链接（粘贴）
+  benchmarkUserLink   String   @default("")
+  /// 用户上传的对标截图（data URL，可能较长）
+  benchmarkUserImage  String   @default("") @db.Text
   qualityLabel   String   @default("中")
   processMemo    String   @default("")
   scoreCompliance Int     @default(0)
@@ -119,4 +123,23 @@ model PlatformLinkedAccount {
   lastTestAt       DateTime @default(now())
 
   @@unique([platform, username])
+}
+
+/// 每日爆款推荐库（策略配置页导入 / 运营维护）
+model TrendingPick {
+  id           String   @id @default(cuid())
+  platform     String
+  /// 与「随便生」内容赛道一致（对应 Category.name）
+  category     String
+  title        String
+  contentBody  String   @db.Text
+  tagsJson     String   @default("[]")
+  likes        Int      @default(0)
+  comments     Int      @default(0)
+  favorites    Int      @default(0)
+  url          String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([platform, category])
 }

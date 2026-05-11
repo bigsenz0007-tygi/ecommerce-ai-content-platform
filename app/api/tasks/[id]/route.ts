@@ -127,6 +127,8 @@ export async function PATCH(request: Request, { params }: Params) {
           benchmarkTitle: src.benchmarkTitle,
           benchmarkBody: src.benchmarkBody,
           benchmarkUrl: src.benchmarkUrl,
+          benchmarkUserLink: src.benchmarkUserLink,
+          benchmarkUserImage: src.benchmarkUserImage,
           qualityLabel: src.qualityLabel,
           processMemo: "基于优质内容复制并创建新任务",
           scoreCompliance: src.scoreCompliance,

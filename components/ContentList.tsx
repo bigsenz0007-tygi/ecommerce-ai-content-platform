@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import {
+  isImageLikeContentFormat,
+  isTextOnlyContentFormat,
+  isVideoLikeContentFormat,
+} from "@/lib/format-display";
 
 export type ContentTask = {
   id: string;
@@ -16,6 +21,8 @@ export type ContentTask = {
   benchmarkTitle: string;
   benchmarkBody: string;
   benchmarkUrl: string;
+  benchmarkUserLink?: string;
+  benchmarkUserImage?: string;
   scoreTotal: number;
   adopted: boolean;
   qualityLabel: "好" | "中" | "差";
@@ -122,7 +129,7 @@ export function ContentList({
                     <div className="biz-wrap rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--background)/0.55)] px-2 py-1.5 text-xs whitespace-pre-wrap break-all">
                       正文：{t.copyBody}
                     </div>
-                    {t.contentFormat === "图文" ? (
+                    {isImageLikeContentFormat(t.contentFormat) ? (
                       <div className="rounded-lg border border-[hsl(var(--border)/0.45)] p-2">
                         <div className="text-[10px] text-[hsl(var(--muted))]">图片预览</div>
                         {firstImage(t.imageUrl) ? (
@@ -137,7 +144,7 @@ export function ContentList({
                         )}
                       </div>
                     ) : null}
-                    {t.contentFormat === "视频文字" ? (
+                    {isVideoLikeContentFormat(t.contentFormat) ? (
                       <div className="rounded-lg border border-[hsl(var(--border)/0.45)] p-2">
                         <div className="text-[10px] text-[hsl(var(--muted))]">视频预览</div>
                         {t.videoUrl ? (
@@ -154,6 +161,11 @@ export function ContentList({
                         ) : null}
                       </div>
                     ) : null}
+                    {isTextOnlyContentFormat(t.contentFormat) ? (
+                      <div className="rounded-lg border border-[hsl(var(--border)/0.45)] p-2 text-xs text-[hsl(var(--muted))]">
+                        口播/纯文案：无配图预览，可直接以正文为准录制或发布。
+                      </div>
+                    ) : null}
                   </div>
                 </details>
               </td>
@@ -161,8 +173,31 @@ export function ContentList({
                 <div className="fs-12" title={t.benchmarkTitle || "暂无"}>{clipText(t.benchmarkTitle || "暂无")}</div>
                 {t.benchmarkUrl ? (
                   <a href={t.benchmarkUrl} target="_blank" rel="noreferrer" className="fs-12 text-[hsl(var(--accent))]">
-                    链接
+                    参考链接
                   </a>
+                ) : null}
+                {t.benchmarkUserLink?.trim() ? (
+                  <div className="mt-1 space-y-1">
+                    <div className="fs-11 text-[hsl(var(--muted))]">用户对标</div>
+                    <a
+                      href={t.benchmarkUserLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="fs-12 break-all text-[hsl(var(--accent))]"
+                    >
+                      {clipText(t.benchmarkUserLink, 40)}
+                    </a>
+                  </div>
+                ) : null}
+                {t.benchmarkUserImage?.trim() ? (
+                  <div className="mt-1">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={t.benchmarkUserImage}
+                      alt="用户对标截图"
+                      className="max-h-24 max-w-[120px] rounded border border-[hsl(var(--border)/0.45)] object-contain"
+                    />
+                  </div>
                 ) : null}
               </td>
               <td className="px-3 py-3 fs-12 whitespace-nowrap">{new Date(t.createdAt).toLocaleString()}</td>

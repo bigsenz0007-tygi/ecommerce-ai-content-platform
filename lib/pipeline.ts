@@ -90,6 +90,8 @@ export type RunOptions = {
   advancedContext?: Record<string, string>;
   /** 用户对标：链接 + 可选截图 data URL */
   benchmarkUser?: { link?: string; imageDataUrl?: string };
+  /** 来自推荐库/采集库的结构化摘要，可绕开外链抓取不稳定问题 */
+  benchmarkPresetSummary?: string;
   /** 每条随机目标与内容格式（随便生） */
   randomizePerItem?: boolean;
 };
@@ -408,8 +410,8 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
       .slice(0, 8000);
   }
 
-  let userBenchmarkSummary: string | null = null;
-  if (storedUserLink || storedUserImage) {
+  let userBenchmarkSummary = options?.benchmarkPresetSummary?.trim() || null;
+  if (!userBenchmarkSummary && (storedUserLink || storedUserImage)) {
     userBenchmarkSummary = await analyzeBenchmarkForMimic({
       link: storedUserLink || undefined,
       linkPreview: linkPreview || undefined,
@@ -577,7 +579,11 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
     vidUrl = fixed.videoUrl;
 
     const benchmark = pickBenchmark(d.accountPlatform, d.objective);
-    const benchmarkTitle = userBenchmarkSummary ? "对标（用户提交·AI理解）" : benchmark.title;
+    const benchmarkTitle = userBenchmarkSummary
+      ? options?.benchmarkPresetSummary?.trim()
+        ? "对标（推荐库摘要）"
+        : "对标（用户提交·AI理解）"
+      : benchmark.title;
     const benchmarkBody = userBenchmarkSummary
       ? userBenchmarkSummary.slice(0, 800)
       : benchmark.body;

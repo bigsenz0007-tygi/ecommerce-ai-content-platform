@@ -6,13 +6,17 @@ import {
   isAllowedBenchmarkUrl,
   normalizeBenchmarkUrl,
 } from "@/lib/benchmark-link";
-import { createDemoTasksFromRun } from "@/lib/demo-runtime";
+import { createDemoTasksFromRun, getDemoState } from "@/lib/demo-runtime";
 
 const OBJECTIVES: GenerationObjective[] = [...CONTENT_GOALS];
 const FORMATS: ContentFormat[] = [...CONTENT_FORMATS];
 
 function randomPick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
+}
+
+function isPlatformChoice(value: string): value is "小红书" | "抖音" {
+  return value === "小红书" || value === "抖音";
 }
 
 export async function POST(request: Request) {
@@ -26,6 +30,7 @@ export async function POST(request: Request) {
     count?: number;
     advancedContext?: Record<string, string>;
     benchmarkUser?: { link?: string; imageDataUrl?: string };
+    benchmarkPresetSummary?: string;
   };
   try {
     const benchmarkUser =
@@ -71,6 +76,7 @@ export async function POST(request: Request) {
         contentFormat: randomPick(FORMATS),
         count,
         benchmarkUser: { link, imageDataUrl: body.benchmarkUser?.imageDataUrl },
+        benchmarkPresetSummary: body.benchmarkPresetSummary?.trim() || undefined,
         randomizePerItem: true,
       });
       return NextResponse.json({
@@ -96,6 +102,7 @@ export async function POST(request: Request) {
           count: Math.max(1, Math.min(50, Number(body.count ?? 10))),
           advancedContext: body.advancedContext || {},
           benchmarkUser,
+          benchmarkPresetSummary: body.benchmarkPresetSummary?.trim() || undefined,
         })
       : await runDailyBatch();
     return NextResponse.json(result);
@@ -107,13 +114,17 @@ export async function POST(request: Request) {
       msg.includes("postgresql://") ||
       msg.includes("postgres://");
     if (isDbEnvError) {
-      if (body.platform && body.categoryId) {
+      const demoPlatformRaw =
+        body.platform ||
+        getDemoState().accounts.find((account) => account.id === body.accountId)?.platform ||
+        "";
+      if (isPlatformChoice(demoPlatformRaw) && body.categoryId) {
         const count =
           body.mode === "random"
             ? Math.max(1, Math.min(10, Number(body.count ?? 3)))
             : Math.max(1, Math.min(50, Number(body.count ?? 3)));
         const tasks = createDemoTasksFromRun({
-          platform: body.platform,
+          platform: demoPlatformRaw,
           categoryId: body.categoryId,
           objective: body.objective || randomPick(OBJECTIVES),
           contentFormat: body.contentFormat || randomPick(FORMATS),
@@ -126,7 +137,10 @@ export async function POST(request: Request) {
           ok: true,
           fallback: true,
           created: tasks.length,
-          message: `演示模式已生成 ${tasks.length} 条内容，可直接去审核页继续体验完整流程。`,
+          message:
+            body.mode === "precise"
+              ? `演示模式已生成 ${tasks.length} 条精准内容，可直接去审核页继续体验完整流程。`
+              : `演示模式已生成 ${tasks.length} 条内容，可直接去审核页继续体验完整流程。`,
         });
       }
     }

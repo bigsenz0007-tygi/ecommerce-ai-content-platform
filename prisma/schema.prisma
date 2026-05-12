@@ -137,9 +137,39 @@ model TrendingPick {
   likes        Int      @default(0)
   comments     Int      @default(0)
   favorites    Int      @default(0)
-  url          String
+  url          String   @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([platform, category])
+}
+
+/// 自动采集的原始/增强候选内容，供推荐库与复刻链路复用
+model TrendingSourceItem {
+  id                 String   @id @default(cuid())
+  platform           String
+  category           String   @default("")
+  title              String
+  contentBody        String   @db.Text
+  tagsJson           String   @default("[]")
+  likes              Int      @default(0)
+  comments           Int      @default(0)
+  favorites          Int      @default(0)
+  coverImageUrl      String   @default("")
+  imageUrlsJson      String   @default("[]")
+  videoUrl           String   @default("")
+  authorName         String   @default("")
+  crawlKeyword       String   @default("")
+  url                String   @unique
+  aiCategory         String   @default("")
+  aiStyleSummary     String   @default("") @db.Text
+  aiStructureSummary String   @default("") @db.Text
+  aiObjectiveJson    String   @default("[]")
+  aiBenchmarkSummary String   @default("") @db.Text
+  importSource       String   @default("worker")
+  syncedToLibrary    Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([platform, aiCategory])
 }

@@ -46,9 +46,11 @@ type RunPayload =
       categoryId: string;
       count: number;
       benchmarkUser: { link: string };
+      benchmarkPresetSummary?: string;
     }
   | {
       mode: "precise";
+      platform: "小红书" | "抖音";
       accountId: string;
       categoryId: string;
       objective: string;
@@ -56,6 +58,7 @@ type RunPayload =
       count: number;
       advancedContext: { 内容风格: string };
       benchmarkUser?: { link: string };
+      benchmarkPresetSummary?: string;
     };
 
 export default function DashboardPage() {
@@ -238,6 +241,7 @@ export default function DashboardPage() {
           }
         : {
             mode: "precise",
+            platform: platform as "小红书" | "抖音",
             accountId,
             categoryId,
             objective,
@@ -311,7 +315,7 @@ export default function DashboardPage() {
       <DailyViralPicks
         categories={options?.categories || []}
         replicating={loading}
-        onReplicate={async ({ url, platform: pf, trackName }) => {
+        onReplicate={async ({ url, platform: pf, trackName, title, contentBody, tags, likes, comments, favorites }) => {
           if (loading) return;
           const normalizedUrl = normalizeBenchmarkUrl(url);
           if (!isAllowedBenchmarkUrl(normalizedUrl)) {
@@ -328,6 +332,15 @@ export default function DashboardPage() {
           setPlatform(pf);
           setCategoryId(cat.id);
           setCountInput("1");
+          const benchmarkPresetSummary = [
+            `平台：${pf}`,
+            `赛道：${trackName}`,
+            `标题：${title}`,
+            `正文：${contentBody}`,
+            `标签：${(tags || []).join(" ") || "无"}`,
+            `互动数据：点赞${likes}，评论${comments}，收藏${favorites}`,
+            "要求：复刻时保持同类内容的结构、语气、排版节奏与内容目标一致，但必须原创表达。",
+          ].join("\n");
           await submitGenerate(
             {
               mode: "random",
@@ -337,6 +350,7 @@ export default function DashboardPage() {
               benchmarkUser: {
                 link: normalizedUrl,
               },
+              benchmarkPresetSummary,
             },
             {
               platform: pf,

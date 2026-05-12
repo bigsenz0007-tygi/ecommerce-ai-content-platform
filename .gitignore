@@ -10,6 +10,7 @@ out
 # env
 .env
 .env*.local
+worker/.env
 
 # prisma
 prisma/*.db
@@ -26,6 +27,8 @@ npm-debug.log*
 # ide
 .idea
 .vscode
+worker/node_modules
+worker/.playwright-profile
 
 # Tencent Cloud EdgeOne
 .env

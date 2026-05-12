@@ -1,0 +1,20 @@
+{
+  "name": "tygi-trending-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "login": "tsx src/login.ts",
+    "crawl": "tsx src/run.ts",
+    "schedule": "tsx src/schedule.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "node-cron": "^4.2.1",
+    "playwright": "^1.55.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

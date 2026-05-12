@@ -1,3 +1,5 @@
+import { CATEGORY_TRACK_NAMES, CONTENT_GOALS } from "./content-taxonomy";
+
 /**
  * 多模型 OpenAI 兼容调用：豆包 / Kimi / DeepSeek / OpenAI(ChatGPT)。
  * 用于对标内容理解与仿写生成；未配置任何 Key 时返回 null，由 pipeline 回退 mock。
@@ -8,6 +10,14 @@ export type AiTextBundle = {
   body: string;
   imagePrompt: string;
   videoScript: string;
+};
+
+export type TrendingCandidateAnalysis = {
+  category: string;
+  styleSummary: string;
+  structureSummary: string;
+  objectiveHints: string[];
+  benchmarkSummary: string;
 };
 
 type ChatMessagePayload =
@@ -115,6 +125,57 @@ function collectProviders(): ProviderConfig[] {
     });
   }
   return list;
+}
+
+function normalizeCategory(value: string): string {
+  if ((CATEGORY_TRACK_NAMES as readonly string[]).includes(value)) return value;
+  const text = value.trim();
+  const categoryKeywords: Array<{ category: string; keywords: string[] }> = [
+    { category: "生活日常", keywords: ["生活", "日常", "vlog", "独居", "routine", "通勤", "租房", "收纳"] },
+    { category: "美妆穿搭", keywords: ["美妆", "口红", "护肤", "穿搭", "妆", "ootd", "试色"] },
+    { category: "美食探店", keywords: ["美食", "探店", "餐厅", "小吃", "咖啡", "火锅", "烘焙"] },
+    { category: "知识干货", keywords: ["教程", "技巧", "干货", "清单", "方法", "excel", "复盘"] },
+    { category: "情感文案", keywords: ["情感", "文案", "共鸣", "关系", "治愈", "情绪"] },
+    { category: "好物种草", keywords: ["种草", "好物", "测评", "开箱", "性价比", "神器"] },
+    { category: "娱乐剧情", keywords: ["剧情", "反转", "搞笑", "段子", "娱乐", "角色"] },
+    { category: "职场创业", keywords: ["职场", "面试", "创业", "副业", "效率", "简历", "工作"] },
+  ];
+  const hit = categoryKeywords.find((item) => item.keywords.some((keyword) => text.toLowerCase().includes(keyword)));
+  return hit?.category || "生活日常";
+}
+
+function fallbackTrendingCandidateAnalysis(params: {
+  platform: string;
+  title: string;
+  contentBody: string;
+  tags: string[];
+  likes: number;
+  comments: number;
+  favorites: number;
+}): TrendingCandidateAnalysis {
+  const joined = [params.title, params.contentBody, params.tags.join(" ")].join(" ");
+  const category = normalizeCategory(joined);
+  const objectiveHints =
+    params.favorites > params.likes * 0.4
+      ? ["互动种草", "涨粉引流"]
+      : params.comments > 1000
+        ? ["互动种草", "品牌曝光"]
+        : ["涨粉引流", "带货转化"];
+  return {
+    category,
+    styleSummary: `${params.platform}平台语气，偏${params.tags.length >= 3 ? "标签密集" : "简洁"}表达，重视首屏钩子与结果前置。`,
+    structureSummary: "标题先给结果或冲突点，正文用清单/分段展开，结尾带互动或行动引导。",
+    objectiveHints,
+    benchmarkSummary: [
+      `平台：${params.platform}`,
+      `赛道：${category}`,
+      `标题：${params.title}`,
+      `正文摘要：${params.contentBody.slice(0, 220)}`,
+      `标签：${params.tags.join(" ") || "无"}`,
+      `互动数据：点赞${params.likes}，评论${params.comments}，收藏${params.favorites}`,
+      "复刻要求：保持同类产品的结构节奏、语气和排版方式一致，但必须原创表达。",
+    ].join("\n"),
+  };
 }
 
 /** 抓取链接前几 KB 纯文本，供模型理解（可能被目标站拒绝，失败则仅用 URL） */
@@ -288,4 +349,63 @@ export async function generateTextBundleWithBenchmark(params: {
     }
   }
   return null;
+}
+
+export async function analyzeTrendingCandidate(params: {
+  platform: string;
+  title: string;
+  contentBody: string;
+  tags: string[];
+  likes: number;
+  comments: number;
+  favorites: number;
+}): Promise<TrendingCandidateAnalysis> {
+  const fallback = fallbackTrendingCandidateAnalysis(params);
+  const providers = collectProviders();
+  if (providers.length === 0) return fallback;
+
+  const systemPrompt =
+    "你是中文内容策略分析师。请根据给定的爆款内容，判断最接近的内容赛道（必须是预设值之一），总结风格、结构，并给出可用于后续原创复刻的摘要。只输出 JSON：{\"category\",\"styleSummary\",\"structureSummary\",\"objectiveHints\",\"benchmarkSummary\"}。objectiveHints 为数组，可从“涨粉引流、带货转化、品牌曝光、互动种草”中选 1-3 个。";
+
+  const userPrompt = [
+    `平台：${params.platform}`,
+    `允许赛道：${CATEGORY_TRACK_NAMES.join("、")}`,
+    `允许目标：${CONTENT_GOALS.join("、")}`,
+    `标题：${params.title}`,
+    `正文：${params.contentBody}`,
+    `标签：${params.tags.join(" ") || "无"}`,
+    `互动数据：点赞${params.likes}，评论${params.comments}，收藏${params.favorites}`,
+  ].join("\n");
+
+  for (const provider of providers) {
+    try {
+      const raw = await postChatCompletions({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: provider.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+      });
+      const parsed = parseJsonObject<Partial<TrendingCandidateAnalysis>>(raw);
+      if (!parsed?.category || !parsed.styleSummary || !parsed.structureSummary || !parsed.benchmarkSummary) {
+        continue;
+      }
+      return {
+        category: normalizeCategory(parsed.category),
+        styleSummary: parsed.styleSummary,
+        structureSummary: parsed.structureSummary,
+        objectiveHints: Array.isArray(parsed.objectiveHints)
+          ? parsed.objectiveHints.map(String).filter(Boolean).slice(0, 3)
+          : fallback.objectiveHints,
+        benchmarkSummary: parsed.benchmarkSummary,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return fallback;
 }

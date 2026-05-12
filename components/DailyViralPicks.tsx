@@ -40,7 +40,7 @@ export function DailyViralPicks({
   replicating = false,
 }: {
   categories: CategoryOpt[];
-  onReplicate: (p: { url: string; platform: string; trackName: string }) => void;
+  onReplicate: (p: TrendingRecommendItem & { trackName: string }) => void;
   replicating?: boolean;
 }) {
   const [platform, setPlatform] = useState<(typeof PLATFORM_CHOICES)[number]>("抖音");
@@ -188,6 +188,7 @@ export function DailyViralPicks({
                     disabled={replicating}
                     onClick={() =>
                       onReplicate({
+                        ...it,
                         url: it.url,
                         platform: it.platform,
                         trackName: it.category,

@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/playwright:v1.55.0-jammy
+
+WORKDIR /app/worker
+
+COPY worker/package.json worker/package-lock.json* ./
+RUN npm install
+
+COPY worker ./
+COPY lib ../lib
+
+CMD ["npm", "run", "schedule"]

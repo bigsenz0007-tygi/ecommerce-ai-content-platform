@@ -55,6 +55,7 @@ export async function POST(req: Request) {
         favorites: r.favorites,
         url: r.url,
       })),
+      skipDuplicates: true,
     });
   } catch {
     return NextResponse.json(

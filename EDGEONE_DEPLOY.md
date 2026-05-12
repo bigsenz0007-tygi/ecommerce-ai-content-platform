@@ -26,6 +26,7 @@
 必填：
 
 - `DATABASE_URL`
+- `TRENDING_INGEST_TOKEN`
 
 按需填写：
 
@@ -48,6 +49,7 @@
 说明：
 
 - 当前项目在无可用数据库时会自动切到演示模式，但若要线上持久化、导入推荐库、发布连接状态等功能可用，必须配置真实 `DATABASE_URL`。
+- 若要启用自动采集 worker 入库，主站必须配置 `TRENDING_INGEST_TOKEN`，worker 端使用同一 token 调用 `/api/trending/ingest`。
 - 推荐使用 PostgreSQL（例如 TencentDB / Supabase / Neon）。
 
 ### 3. 数据库初始化
@@ -99,3 +101,10 @@ npx -y --registry=https://registry.npmmirror.com edgeone@latest pages deploy -n 
 - Prisma: 需要真实 `DATABASE_URL`
 - `next.config.ts` 当前无需为 EdgeOne 额外修改
 - 若后续新增 Next.js `redirects` / `rewrites`，建议优先迁移到 `edgeone.json`
+
+## 自动采集 Worker
+
+- 独立 worker 已放在 `worker/`
+- 运行方式：`Playwright + 登录态 + 定时调度`
+- 部署目标：腾讯云 `CVM / Lighthouse / 容器`
+- 详细说明见 `worker/README.md`

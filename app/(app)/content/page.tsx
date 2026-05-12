@@ -17,8 +17,8 @@ function ContentPageInner() {
   const [endDate, setEndDate] = useState("");
 
   useEffect(() => {
-    const s = searchParams.get("status");
-    const p = searchParams.get("platform");
+    const s = searchParams?.get("status");
+    const p = searchParams?.get("platform");
     setStatus(s ?? "");
     setPlatform(p ?? "");
   }, [searchParams]);

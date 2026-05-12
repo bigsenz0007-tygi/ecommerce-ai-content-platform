@@ -32,10 +32,10 @@ function ReviewPageInner() {
   const [keyword, setKeyword] = useState("");
 
   useEffect(() => {
-    const p = searchParams.get("platform");
-    const o = searchParams.get("objective");
-    if (p !== null) setPlatformFilter(p);
-    if (o !== null) setObjectiveFilter(o);
+    const p = searchParams?.get("platform");
+    const o = searchParams?.get("objective");
+    if (p != null) setPlatformFilter(p);
+    if (o != null) setObjectiveFilter(o);
   }, [searchParams]);
 
   const load = useCallback(async () => {

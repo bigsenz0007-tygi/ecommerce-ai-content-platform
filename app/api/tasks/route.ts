@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { listDemoTasks } from "@/lib/demo-runtime";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -36,17 +37,36 @@ export async function GET(request: Request) {
     };
   }
 
-  let tasks = await prisma.task.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    include: { account: true, category: true },
-    take: 200,
-  });
+  try {
+    let tasks = await prisma.task.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { account: true, category: true },
+      take: 200,
+    });
 
-  if (efficiency === "采纳") tasks = tasks.filter((t) => t.adopted);
-  if (efficiency === "驳回") tasks = tasks.filter((t) => t.status === "rejected");
-  if (efficiency === "处理中")
-    tasks = tasks.filter((t) => !t.adopted && t.status !== "rejected");
+    if (efficiency === "采纳") tasks = tasks.filter((t) => t.adopted);
+    if (efficiency === "驳回") tasks = tasks.filter((t) => t.status === "rejected");
+    if (efficiency === "处理中")
+      tasks = tasks.filter((t) => !t.adopted && t.status !== "rejected");
 
-  return NextResponse.json({ tasks });
+    return NextResponse.json({ tasks });
+  } catch {
+    return NextResponse.json({
+      tasks: listDemoTasks({
+        status,
+        adopted,
+        objective,
+        contentFormat,
+        qualityLabel,
+        platform,
+        startDate,
+        endDate,
+        minScore,
+        maxScore,
+        efficiency,
+      }),
+      fallback: true,
+    });
+  }
 }

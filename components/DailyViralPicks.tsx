@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BizDropdown } from "@/components/BizDropdown";
 import { PLATFORM_CHOICES } from "@/lib/content-taxonomy";
 import {
@@ -37,22 +37,27 @@ function clipUrl(url: string, max = 36): string {
 export function DailyViralPicks({
   categories,
   onReplicate,
+  replicating = false,
 }: {
   categories: CategoryOpt[];
   onReplicate: (p: { url: string; platform: string; trackName: string }) => void;
+  replicating?: boolean;
 }) {
   const [platform, setPlatform] = useState<(typeof PLATFORM_CHOICES)[number]>("抖音");
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryId, setCategoryId] = useState<string>(categories[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [emptyMsg, setEmptyMsg] = useState("");
   const [items, setItems] = useState<TrendingRecommendItem[] | null>(null);
+  const [autoTriggered, setAutoTriggered] = useState(false);
 
-  async function recommend() {
-    if (!categoryId) {
-      setErr("请先选择内容赛道（与下方随便生一致）");
-      return;
+  useEffect(() => {
+    if (!categoryId && categories[0]?.id) {
+      setCategoryId(categories[0].id);
     }
+  }, [categories, categoryId]);
+
+  const recommend = useCallback(async () => {
     setErr("");
     setEmptyMsg("");
     setItems(null);
@@ -71,7 +76,7 @@ export function DailyViralPicks({
         return;
       }
       if (j.empty) {
-        setEmptyMsg(j.message || "当前组合下素材不足，无法推荐。");
+        setEmptyMsg(j.message || "内容待更新");
         setItems([]);
         return;
       }
@@ -81,13 +86,20 @@ export function DailyViralPicks({
     } finally {
       setLoading(false);
     }
-  }
+  }, [categoryId, platform]);
+
+  useEffect(() => {
+    if (!autoTriggered && categoryId && categories.length > 0) {
+      setAutoTriggered(true);
+      void recommend();
+    }
+  }, [autoTriggered, categoryId, categories.length, recommend]);
 
   return (
-    <section className="biz-panel ring-glow mb-6">
+    <section className="relative z-20 biz-panel ring-glow mb-6">
       <div className="mb-4">
         <div className="fs-20 font-semibold tracking-tight text-[hsl(var(--foreground))]">每日爆款推荐</div>
-        <p className="mt-1 fs-13 text-[hsl(var(--muted))]">选择平台及内容赛道（与随便生相同），我将为您推荐内容</p>
+        <p className="mt-1 fs-13 text-[hsl(var(--muted))]">选择平台及内容赛道，我将为您推荐内容</p>
       </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -107,7 +119,7 @@ export function DailyViralPicks({
             className="w-full"
             value={categoryId}
             placeholder="请选择"
-            options={categories.map((c) => ({ label: c.name, value: c.id }))}
+            options={categories.map((item) => ({ label: item.name, value: item.id }))}
             onChange={setCategoryId}
           />
         </div>
@@ -173,6 +185,7 @@ export function DailyViralPicks({
                   <button
                     type="button"
                     className="biz-primary-btn w-full !py-2 !fs-12"
+                    disabled={replicating}
                     onClick={() =>
                       onReplicate({
                         url: it.url,

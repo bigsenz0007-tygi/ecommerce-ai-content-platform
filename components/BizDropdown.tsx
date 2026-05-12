@@ -31,7 +31,7 @@ export function BizDropdown({
   }, []);
 
   return (
-    <div ref={rootRef} className={`relative ${className}`}>
+    <div ref={rootRef} className={`relative ${open ? "z-[80]" : ""} ${className}`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -61,24 +61,29 @@ export function BizDropdown({
         </span>
       </button>
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+6px)] z-40 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-raised))] p-1 shadow-lg">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => {
-                onChange(opt.value);
-                setOpen(false);
-              }}
-              className={`block w-full rounded-lg px-2 py-2 text-left fs-14 ${
-                value === opt.value
-                  ? "bg-[hsl(var(--accent)/0.18)] text-[hsl(var(--foreground))]"
-                  : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface)/0.9)]"
-              }`}
-            >
-              {value === opt.value ? `✓ ${opt.label}` : opt.label}
-            </button>
-          ))}
+        <div className="absolute left-0 top-[calc(100%+6px)] z-[81] w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-raised))] p-1 shadow-lg">
+          {options.length > 0 ? (
+            options.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(opt.value);
+                  setOpen(false);
+                }}
+                className={`block w-full rounded-lg px-2 py-2 text-left fs-14 ${
+                  value === opt.value
+                    ? "bg-[hsl(var(--accent)/0.18)] text-[hsl(var(--foreground))]"
+                    : "text-[hsl(var(--foreground))] hover:bg-[hsl(var(--surface)/0.9)]"
+                }`}
+              >
+                {value === opt.value ? `✓ ${opt.label}` : opt.label}
+              </button>
+            ))
+          ) : (
+            <div className="px-2 py-2 fs-13 text-[hsl(var(--foreground)/0.55)]">暂无可选内容</div>
+          )}
         </div>
       ) : null}
     </div>

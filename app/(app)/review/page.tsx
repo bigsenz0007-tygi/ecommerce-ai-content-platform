@@ -30,7 +30,6 @@ function ReviewPageInner() {
   const [formatFilter, setFormatFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
     const p = searchParams.get("platform");
@@ -68,28 +67,11 @@ function ReviewPageInner() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    async function loadAuth() {
-      const r = await fetch("/api/auth/me");
-      const j = (await r.json()) as { loggedIn: boolean };
-      setLoggedIn(!!j.loggedIn);
-    }
-    void loadAuth();
-  }, []);
-
   function openEdit(task: ContentTask) {
-    if (!loggedIn) {
-      alert("请先登录后再编辑");
-      return;
-    }
     setEditingTask(task);
   }
 
   async function patchTask(id: string, body: Record<string, unknown>) {
-    if (!loggedIn) {
-      alert("体验模式不支持操作，请先登录");
-      return;
-    }
     setBusy(id);
     try {
       await fetch(`/api/tasks/${id}`, {
@@ -110,9 +92,6 @@ function ReviewPageInner() {
         <p className="mt-2 text-sm text-[hsl(var(--muted))]">
           审核支持：对标内容对比、人工编辑、人工打标。采纳后进入待发布。
         </p>
-        {!loggedIn ? (
-          <p className="mt-1 text-xs text-[hsl(var(--muted))]">体验模式仅浏览，不支持审核操作。</p>
-        ) : null}
       </div>
       <div className="grid gap-3 md:grid-cols-5">
         <Card label="已审核" value={stats?.reviewed ?? 0} />
@@ -294,6 +273,13 @@ function ReviewPageInner() {
                       className="btn-secondary rounded-lg px-2 py-1 text-xs h-auto"
                     >
                       采纳
+                    </button>
+                    <button
+                      disabled={busy === t.id}
+                      onClick={() => void patchTask(t.id, { action: "reject" })}
+                      className="btn-secondary rounded-lg px-2 py-1 text-xs h-auto"
+                    >
+                      驳回
                     </button>
                   </div>
                 </td>

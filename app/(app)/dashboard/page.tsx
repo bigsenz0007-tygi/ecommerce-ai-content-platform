@@ -5,7 +5,11 @@ import { StatCard } from "@/components/StatCard";
 import { BizDropdown } from "@/components/BizDropdown";
 import { PLATFORM_CHOICES } from "@/lib/content-taxonomy";
 import { DailyViralPicks } from "@/components/DailyViralPicks";
-import { isAllowedBenchmarkUrl } from "@/lib/benchmark-link";
+import {
+  inferBenchmarkPlatform,
+  isAllowedBenchmarkUrl,
+  normalizeBenchmarkUrl,
+} from "@/lib/benchmark-link";
 
 type Stats = {
   totalTasks: number;
@@ -35,6 +39,25 @@ type OptionData = {
   contentStyles?: string[];
 };
 
+type RunPayload =
+  | {
+      mode: "random";
+      platform: "小红书" | "抖音";
+      categoryId: string;
+      count: number;
+      benchmarkUser: { link: string };
+    }
+  | {
+      mode: "precise";
+      accountId: string;
+      categoryId: string;
+      objective: string;
+      contentFormat: string;
+      count: number;
+      advancedContext: { 内容风格: string };
+      benchmarkUser?: { link: string };
+    };
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [options, setOptions] = useState<OptionData | null>(null);
@@ -45,10 +68,9 @@ export default function DashboardPage() {
   const [objective, setObjective] = useState("");
   const [contentFormat, setContentFormat] = useState("");
   const [preciseStyle, setPreciseStyle] = useState("");
-  const [countInput, setCountInput] = useState("");
+  const [countInput, setCountInput] = useState("3");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
-  const [auth, setAuth] = useState<{ loggedIn: boolean }>({ loggedIn: false });
   const [dialog, setDialog] = useState<{
     open: boolean;
     title: string;
@@ -57,7 +79,6 @@ export default function DashboardPage() {
     actionHref: string;
   } | null>(null);
   const [benchmarkLink, setBenchmarkLink] = useState("");
-  const [benchmarkImageDataUrl, setBenchmarkImageDataUrl] = useState("");
 
   const load = useCallback(async () => {
     const r = await fetch("/api/stats");
@@ -71,20 +92,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadOptions() {
-      const r = await fetch("/api/options");
-      const j = (await r.json()) as OptionData;
-      setOptions(j);
+      try {
+        const r = await fetch("/api/options");
+        if (!r.ok) throw new Error("load_options_failed");
+        const j = (await r.json()) as OptionData;
+        setOptions(j);
+      } catch {
+        setMsg("选项加载失败，请刷新重试；若刚改过推荐库结构，请同步数据库后再试。");
+      }
     }
     void loadOptions();
-  }, []);
-
-  useEffect(() => {
-    async function loadAuth() {
-      const r = await fetch("/api/auth/me");
-      const j = (await r.json()) as { loggedIn: boolean };
-      setAuth({ loggedIn: !!j.loggedIn });
-    }
-    void loadAuth();
   }, []);
 
   useEffect(() => {
@@ -98,22 +115,102 @@ export default function DashboardPage() {
   }, [platform, options, accountId]);
 
   useEffect(() => {
+    if (!options) return;
+    if (!platform) {
+      setPlatform(options.platformChoices?.[0] || options.platforms?.[0] || PLATFORM_CHOICES[0]);
+    }
+    if (!categoryId && options.categories[0]?.id) {
+      setCategoryId(options.categories[0].id);
+    }
+    if (!objective && options.objectives[0]) {
+      setObjective(options.objectives[0]);
+    }
+    if (!contentFormat && options.formats[0]) {
+      setContentFormat(options.formats[0]);
+    }
+    if (!preciseStyle && options.contentStyles?.[0]) {
+      setPreciseStyle(options.contentStyles[0]);
+    }
+  }, [options, platform, categoryId, objective, contentFormat, preciseStyle]);
+
+  useEffect(() => {
     if (mode !== "random" || !benchmarkLink.trim()) return;
-    const inferred = inferPlatformFromUrl(benchmarkLink.trim());
+    const inferred = inferBenchmarkPlatform(benchmarkLink.trim());
     if (inferred) setPlatform(inferred);
   }, [benchmarkLink, mode]);
 
+  async function submitGenerate(
+    payload: RunPayload,
+    options: {
+      platform: string;
+      objective?: string;
+      successMessage?: string;
+    }
+  ) {
+    const safeCount = payload.count;
+    const heavy = payload.mode === "precise" ? safeCount >= 8 : safeCount >= 7;
+    const reviewHref = buildReviewHref(options.platform, payload.mode === "precise" ? (options.objective ?? "") : "");
+    const contentHref = buildContentHref(options.platform);
+
+    setLoading(true);
+    setMsg("");
+    if (heavy) {
+      setDialog({
+        open: true,
+        title: "正在生！",
+        desc: "阁下可以稍作休息，我一会儿通知您，也可以去全部任务页查看进度。",
+        actionLabel: "去查看",
+        actionHref: contentHref,
+      });
+    }
+
+    const start = Date.now();
+    try {
+      const r = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = (await r.json()) as { message?: string; error?: string };
+      if (!r.ok) {
+        setDialog(null);
+        emitToast(j.error || "生成失败，请检查筛选项后重试", "继续填写", "/dashboard");
+        return;
+      }
+      const successMessage = options.successMessage || j.message || "已生成";
+      setMsg(successMessage);
+      const elapsed = Date.now() - start;
+      const doneFast = !heavy && elapsed < 2500;
+      if (doneFast) {
+        setDialog({
+          open: true,
+          title: "已生完！",
+          desc: "阁下请移步至审核界面进行审核。",
+          actionLabel: "去审核",
+          actionHref: reviewHref,
+        });
+      } else {
+        emitToast(successMessage, "去审核", reviewHref);
+      }
+      emitGlobalToast(successMessage, "去审核", reviewHref);
+      await load();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function runGenerate() {
+    const normalizedLink = normalizeBenchmarkUrl(benchmarkLink.trim());
     if (mode === "random") {
       if (!benchmarkLink.trim() || !platform || !categoryId) {
         emitToast("请填写对标链接并选择平台与分类", "继续填写", "/dashboard");
         return;
       }
-      if (!isAllowedBenchmarkUrl(benchmarkLink.trim())) {
+      if (!isAllowedBenchmarkUrl(normalizedLink)) {
         emitToast("请输入小红书或抖音的有效笔记/视频链接", "继续填写", "/dashboard");
         return;
       }
-      const inferred = inferPlatformFromUrl(benchmarkLink.trim());
+      const inferred = inferBenchmarkPlatform(normalizedLink);
       if (inferred && platform && inferred !== platform) {
         emitToast("链接所属平台与所选平台不一致，请检查", "继续填写", "/dashboard");
         return;
@@ -128,85 +225,38 @@ export default function DashboardPage() {
       return;
     }
     const safeCount = mode === "random" ? Math.max(1, Math.min(10, parsedCount)) : Math.max(1, Math.min(50, parsedCount));
-    if (mode !== "random" && !auth.loggedIn) {
-      emitToast("请先登录后使用精准生", "去登录", "/login?next=/dashboard");
-      return;
-    }
-    setLoading(true);
-    setMsg("");
-    const heavy = mode === "precise" ? safeCount >= 8 : safeCount >= 7;
-    const reviewHref = buildReviewHref(platform, mode === "precise" ? objective : "");
-    const contentHref = buildContentHref(platform);
-    if (heavy) {
-      setDialog({
-        open: true,
-        title: "正在生！",
-        desc: "阁下可以稍作休息，我一会儿通知您，也可以去全部任务页查看进度。",
-        actionLabel: "去查看",
-        actionHref: contentHref,
-      });
-    }
-    const start = Date.now();
-    try {
-      const payload =
-        mode === "random"
-          ? {
-              mode: "random" as const,
-              platform: platform as "小红书" | "抖音",
-              categoryId,
-              count: safeCount,
-              benchmarkUser: {
-                link: benchmarkLink.trim(),
-              },
-            }
-          : {
-              mode: "precise" as const,
-              accountId,
-              categoryId,
-              objective,
-              contentFormat,
-              count: safeCount,
-              advancedContext: {
-                内容风格: preciseStyle,
-              },
-              benchmarkUser:
-                benchmarkLink.trim() || benchmarkImageDataUrl
-                  ? {
-                      link: benchmarkLink.trim() || undefined,
-                      imageDataUrl: benchmarkImageDataUrl || undefined,
-                    }
-                  : undefined,
-            };
-      const r = await fetch("/api/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = (await r.json()) as { message?: string; error?: string };
-      if (!r.ok) {
-        setDialog(null);
-        emitToast(j.error || "生成失败，请检查筛选项后重试", "继续填写", "/dashboard");
-        return;
-      }
-      setMsg(j.message || "已生成");
-      const elapsed = Date.now() - start;
-      const doneFast = !heavy && elapsed < 2500;
-      if (doneFast) {
-        setDialog({
-          open: true,
-          title: "已生完！",
-          desc: "阁下请移步至审核界面进行审核。",
-          actionLabel: "去审核",
-          actionHref: reviewHref,
-        });
-      } else {
-        emitToast("生成任务已完成，速速去审核", "去审核", reviewHref);
-      }
-      emitGlobalToast("生成任务已完成，速速去审核", "去审核", reviewHref);
-      await load();
-    } finally {
-      setLoading(false);
-    }
+    const payload: RunPayload =
+      mode === "random"
+        ? {
+            mode: "random",
+            platform: platform as "小红书" | "抖音",
+            categoryId,
+            count: safeCount,
+            benchmarkUser: {
+              link: normalizedLink,
+            },
+          }
+        : {
+            mode: "precise",
+            accountId,
+            categoryId,
+            objective,
+            contentFormat,
+            count: safeCount,
+            advancedContext: {
+              内容风格: preciseStyle,
+            },
+            benchmarkUser: benchmarkLink.trim()
+              ? {
+                  link: normalizeBenchmarkUrl(benchmarkLink.trim()),
+                }
+              : undefined,
+          };
+    await submitGenerate(payload, {
+      platform,
+      objective,
+      successMessage: "生成任务已完成，速速去审核",
+    });
   }
 
   return (
@@ -216,6 +266,24 @@ export default function DashboardPage() {
         <p className="biz-inline-note mt-2 max-w-3xl">
           今天又是搞钱的一天，发发发，Tygi！
         </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {[
+          { title: "1. 先选推荐或直接开生", desc: "首页完成平台、赛道和对标链接输入。", href: "/dashboard" },
+          { title: "2. 去待审核挑可用内容", desc: "编辑、打标、采纳或驳回，沉淀可复用内容。", href: "/review" },
+          { title: "3. 去待发布做预览", desc: "确认平台连接后生成发布草稿。", href: "/publish" },
+          { title: "4. 去策略配置补规则", desc: "维护推荐库、连接状态和平台规则。", href: "/settings#connections" },
+        ].map((item) => (
+          <a
+            key={item.title}
+            href={item.href}
+            className="glass rounded-2xl p-4 transition hover:bg-[hsl(var(--surface-raised)/0.55)]"
+          >
+            <div className="text-sm font-semibold text-[hsl(var(--foreground))]">{item.title}</div>
+            <div className="mt-1 text-xs leading-relaxed text-[hsl(var(--muted))]">{item.desc}</div>
+          </a>
+        ))}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -242,18 +310,38 @@ export default function DashboardPage() {
 
       <DailyViralPicks
         categories={options?.categories || []}
-        onReplicate={({ url, platform: pf, trackName }) => {
-          setBenchmarkLink(url);
-          setPlatform(pf);
-          const cat = options?.categories?.find((c) => c.name === trackName);
-          if (cat) setCategoryId(cat.id);
-          if (typeof window !== "undefined") {
-            window.scrollTo({ top: 420, behavior: "smooth" });
+        replicating={loading}
+        onReplicate={async ({ url, platform: pf, trackName }) => {
+          if (loading) return;
+          const normalizedUrl = normalizeBenchmarkUrl(url);
+          if (!isAllowedBenchmarkUrl(normalizedUrl)) {
+            emitToast("复刻链接无效，请更换后重试", "继续填写", "/dashboard");
+            return;
           }
-          emitToast(
-            cat ? "已填入复刻链接、平台与内容赛道，可调整数量后开生。" : "已填入复刻链接与平台；请手动选择内容赛道。",
-            "好的",
-            "/dashboard",
+          const cat = options?.categories?.find((c) => c.name === trackName);
+          if (!cat) {
+            emitToast("该推荐内容未匹配到标准赛道，请先在策略配置中校准赛道", "去配置", "/settings");
+            return;
+          }
+          setMode("random");
+          setBenchmarkLink(normalizedUrl);
+          setPlatform(pf);
+          setCategoryId(cat.id);
+          setCountInput("1");
+          await submitGenerate(
+            {
+              mode: "random",
+              platform: pf as "小红书" | "抖音",
+              categoryId: cat.id,
+              count: 1,
+              benchmarkUser: {
+                link: normalizedUrl,
+              },
+            },
+            {
+              platform: pf,
+              successMessage: "已按该爆款内容直接复刻 1 条，速速去审核",
+            }
           );
         }}
       />
@@ -278,11 +366,9 @@ export default function DashboardPage() {
             精准生
           </button>
         </div>
-        {!auth.loggedIn ? (
-          <div className="mb-2 fs-12 text-[hsl(var(--muted))]">
-            随便生无需登录：填写对标链接并选择平台与分类即可 1～10 条。精准生需先登录本系统账号。
-          </div>
-        ) : null}
+        <div className="mb-2 fs-12 text-[hsl(var(--muted))]">
+          当前为直接体验模式：随便生与精准生都可填写平台链接生成内容。
+        </div>
         <div className="biz-panel ring-glow">
           {mode === "random" ? (
             <div className="mb-3 space-y-2">
@@ -397,50 +483,19 @@ export default function DashboardPage() {
           </div>
           {mode === "precise" ? (
             <div className="mt-3 border-t border-[hsl(var(--border)/0.35)] pt-3">
-              <div className="mb-2 fs-13 font-medium text-[hsl(var(--foreground))]">对标内容（可选）</div>
+              <div className="mb-2 fs-13 font-medium text-[hsl(var(--foreground))]">平台链接（可选）</div>
               <p className="mb-2 fs-12 text-[hsl(var(--muted))]">
-                粘贴链接或上传截图，便于模型对齐风格；不填则仅按品类与平台规则生成。
+                粘贴小红书 / 抖音链接，便于模型对齐风格；不填则仅按品类与平台规则生成。
               </p>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-1">
                 <label className="block fs-12">
-                  <span className="text-[hsl(var(--muted))]">对标链接</span>
+                  <span className="text-[hsl(var(--muted))]">平台链接</span>
                   <input
                     className="biz-control mt-1 w-full"
-                    placeholder="https://..."
+                    placeholder="粘贴 xiaohongshu.com / douyin.com 链接"
                     value={benchmarkLink}
                     onChange={(e) => setBenchmarkLink(e.target.value)}
                   />
-                </label>
-                <label className="block fs-12">
-                  <span className="text-[hsl(var(--muted))]">对标截图</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="biz-control mt-1 w-full !py-2 fs-12"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) {
-                        setBenchmarkImageDataUrl("");
-                        return;
-                      }
-                      if (f.size > 2 * 1024 * 1024) {
-                        emitToast("截图请小于 2MB", "确定", "/dashboard");
-                        return;
-                      }
-                      const reader = new FileReader();
-                      reader.onload = () => setBenchmarkImageDataUrl(String(reader.result || ""));
-                      reader.readAsDataURL(f);
-                    }}
-                  />
-                  {benchmarkImageDataUrl ? (
-                    <button
-                      type="button"
-                      className="mt-1 fs-12 text-[hsl(var(--accent))]"
-                      onClick={() => setBenchmarkImageDataUrl("")}
-                    >
-                      清除截图
-                    </button>
-                  ) : null}
                 </label>
               </div>
             </div>
@@ -448,7 +503,7 @@ export default function DashboardPage() {
           <div className="mt-2 fs-12 text-[hsl(var(--muted))]">
             {mode === "random"
               ? "随便生：基于对标链接解析风格，每条随机「内容目标 + 内容格式」，一次 1～10 条；无需选择账号。"
-              : "精准生：按内容平台、赛道、目标、格式、风格与数量定向生成；可选对标链接/截图强化仿写。"}
+              : "精准生：按内容平台、赛道、目标、格式、风格与数量定向生成；可选平台链接强化仿写。"}
           </div>
         </div>
         <div className="mt-3 flex justify-center">
@@ -480,17 +535,6 @@ export default function DashboardPage() {
       ) : null}
     </div>
   );
-}
-
-function inferPlatformFromUrl(url: string): "" | "小红书" | "抖音" {
-  try {
-    const h = new URL(url.trim()).hostname.toLowerCase();
-    if (h.includes("xiaohongshu.com") || h.includes("xhslink.com") || h.includes("xhs.cn")) return "小红书";
-    if (h.includes("douyin.com") || h.includes("iesdouyin.com") || h.includes("amemv.com")) return "抖音";
-    return "";
-  } catch {
-    return "";
-  }
 }
 
 function FieldRow({

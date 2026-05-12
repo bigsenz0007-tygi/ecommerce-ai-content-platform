@@ -154,17 +154,14 @@ export async function analyzeBenchmarkForMimic(params: {
   link?: string;
   linkPreview?: string;
   imageDataUrl?: string;
-  /** 用户填写的互动/转化侧写，偏主观即可 */
-  userNotes?: string;
 }): Promise<string | null> {
   const providers = collectProviders();
   const system =
-    "你是内容策略分析师。根据用户提供的对标链接说明与/或截图，输出一段中文「对标要点」摘要（结构、语气、钩子、话题标签风格），不超过 600 字。不要编造具体数据。只输出摘要正文，不要 JSON。若用户补充了互动或转化侧写，请在摘要中体现其对内容侧重点的暗示（如偏涨粉、偏互动、偏成交等），但仍不得捏造访问量、销售额等数字。";
+    "你是内容策略分析师。根据用户提供的对标链接说明与/或截图，输出一段中文「对标要点」摘要（结构、语气、钩子、话题标签风格），不超过 600 字。不要编造具体数据。只输出摘要正文，不要 JSON。";
 
   const textBlock = [
     params.link ? `用户对标链接：${params.link}` : "",
     params.linkPreview ? `链接可抓取文本片段：\n${params.linkPreview}` : "",
-    params.userNotes?.trim() ? `用户补充（互动/成交主观描述）：\n${params.userNotes.trim()}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");

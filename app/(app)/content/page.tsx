@@ -15,7 +15,6 @@ function ContentPageInner() {
   const [minScore, setMinScore] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
     const s = searchParams.get("status");
@@ -55,15 +54,6 @@ function ContentPageInner() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    async function loadAuth() {
-      const r = await fetch("/api/auth/me");
-      const j = (await r.json()) as { loggedIn: boolean };
-      setLoggedIn(!!j.loggedIn);
-    }
-    void loadAuth();
-  }, []);
-
   return (
     <div className="space-y-6">
       <div>
@@ -71,9 +61,6 @@ function ContentPageInner() {
         <p className="mt-2 text-sm text-[hsl(var(--muted))]">
           融合历史内容与进行中任务：支持筛选查看、复制创建、暂停或结束任务。
         </p>
-        {!loggedIn ? (
-          <p className="mt-1 text-xs text-[hsl(var(--muted))]">体验模式仅查看，不支持操作。</p>
-        ) : null}
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -164,8 +151,8 @@ function ContentPageInner() {
       <ContentList
         tasks={tasks}
         onRefresh={load}
-        allowCloneActions={loggedIn}
-        allowTaskActions={loggedIn}
+        allowCloneActions
+        allowTaskActions
       />
     </div>
   );

@@ -216,7 +216,25 @@ export function ContentList({
                         复制并创建
                       </button>
                     ) : null}
-                    {allowTaskActions ? null : null}
+                    {allowTaskActions && (t.status === "pending_task" || t.status === "generating") ? (
+                      <button
+                        disabled={busy === t.id}
+                        onClick={() => void patchTask(t.id, { action: "pause_task" })}
+                        className="btn-secondary whitespace-nowrap rounded-lg px-2 py-1 fs-12 h-auto"
+                      >
+                        暂停任务
+                      </button>
+                    ) : null}
+                    {allowTaskActions &&
+                    (t.status === "pending_task" || t.status === "generating" || t.status === "paused") ? (
+                      <button
+                        disabled={busy === t.id}
+                        onClick={() => void patchTask(t.id, { action: "end_task" })}
+                        className="btn-secondary whitespace-nowrap rounded-lg px-2 py-1 fs-12 h-auto"
+                      >
+                        结束任务
+                      </button>
+                    ) : null}
                     {allowReviewActions ? (
                       <>
                         <button

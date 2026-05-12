@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { regenerateTask } from "@/lib/pipeline";
-import { getCurrentUserFromCookie, unauthorized } from "@/lib/auth-session";
+import { patchDemoTask } from "@/lib/demo-runtime";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Params) {
-  const user = await getCurrentUserFromCookie();
-  if (!user) return unauthorized("体验模式不支持此操作，请先登录");
   const { id } = await params;
   const body = (await request.json()) as {
     action?: string;
@@ -142,6 +140,10 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     return NextResponse.json({ error: "未知操作" }, { status: 400 });
   } catch {
-    return NextResponse.json({ error: "更新失败" }, { status: 404 });
+    const result = patchDemoTask(id, body);
+    if ("error" in result) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+    return NextResponse.json({ ...result, fallback: true }, { status: result.status });
   }
 }

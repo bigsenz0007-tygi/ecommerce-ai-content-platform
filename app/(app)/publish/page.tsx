@@ -1,20 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { ContentTask } from "@/components/ContentList";
 import { BizDropdown } from "@/components/BizDropdown";
 import { TaskEditModal } from "@/components/TaskEditModal";
 
 export default function PublishPage() {
-  const router = useRouter();
   const [tasks, setTasks] = useState<ContentTask[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [platformFilter, setPlatformFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [editingTask, setEditingTask] = useState<ContentTask | null>(null);
   const [saving, setSaving] = useState(false);
-  const [loggedIn, setLoggedIn] = useState(false);
 
   const load = useCallback(async () => {
     const q = new URLSearchParams();
@@ -42,15 +39,6 @@ export default function PublishPage() {
   }, []);
 
   useEffect(() => {
-    async function loadAuth() {
-      const r = await fetch("/api/auth/me");
-      const j = (await r.json()) as { loggedIn: boolean };
-      setLoggedIn(!!j.loggedIn);
-    }
-    void loadAuth();
-  }, []);
-
-  useEffect(() => {
     if (!editingTask) return;
     const old = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -60,12 +48,8 @@ export default function PublishPage() {
   }, [editingTask]);
 
   async function publishPreview(task: ContentTask, platform: string) {
-    if (!loggedIn) {
-      router.push(`/login?next=${encodeURIComponent("/publish")}`);
-      return;
-    }
     if (!connectedPlatforms.includes(platform)) {
-      router.push("/settings");
+      window.location.href = "/settings#connections";
       return;
     }
     const r = await fetch("/api/publish/draft", {
@@ -89,9 +73,6 @@ export default function PublishPage() {
         <p className="mt-2 text-sm text-[hsl(var(--muted))]">
           列表展示待发布内容，支持筛选；操作仅保留发布预览和编辑。
         </p>
-        {!loggedIn ? (
-          <p className="mt-1 text-xs text-[hsl(var(--muted))]">体验模式仅浏览，不支持发布和编辑。</p>
-        ) : null}
       </div>
       <div className="glass rounded-2xl p-4">
         <div className="biz-filter-row">
@@ -169,16 +150,15 @@ export default function PublishPage() {
                   <div className="flex flex-wrap gap-1">
                     {!connectedPlatforms.includes(t.account.platform) ? (
                       <button
-                        onClick={() =>
-                          loggedIn ? router.push("/settings") : router.push("/login?next=/publish")
-                        }
+                        onClick={() => {
+                          window.location.href = "/settings#connections";
+                        }}
                         className="btn-secondary rounded-lg px-2 py-1 text-xs h-auto"
                       >
-                        {loggedIn ? "登录预览" : "去登录"}
+                        去配置
                       </button>
                     ) : (
                     <button
-                      disabled={!loggedIn}
                       onClick={() => void publishPreview(t, t.account.platform)}
                       className="btn-primary rounded-lg px-2 py-1 text-xs font-medium h-auto"
                     >
@@ -187,10 +167,6 @@ export default function PublishPage() {
                     )}
                     <button
                       onClick={() => {
-                        if (!loggedIn) {
-                          router.push("/login?next=/publish");
-                          return;
-                        }
                         setEditingTask(t);
                       }}
                       className="btn-secondary rounded-lg px-2 py-1 text-xs h-auto"

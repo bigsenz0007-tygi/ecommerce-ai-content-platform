@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
 import { analyzeBenchmarkForMimic, generateTextBundleWithBenchmark } from "@/lib/ai-providers";
-import type { BenchmarkSupplementInput } from "@/lib/benchmark-types";
 import { fetchUrlPageSignals } from "@/lib/trending-fetch";
 import { DEFAULT_TRENDING_PICKS } from "@/lib/trending-default-seeds";
 import {
@@ -91,23 +90,11 @@ export type RunOptions = {
   advancedContext?: Record<string, string>;
   /** 用户对标：链接 + 可选截图 data URL */
   benchmarkUser?: { link?: string; imageDataUrl?: string };
-  /** 用户补充互动/转化侧写，便于模型与后续数据沉淀（不落库单独字段时写入 processMemo） */
-  benchmarkSupplement?: BenchmarkSupplementInput;
   /** 每条随机目标与内容格式（随便生） */
   randomizePerItem?: boolean;
 };
 
 const MAX_STORED_USER_IMAGE = 120_000;
-
-function buildBenchmarkSupplementNotes(s?: BenchmarkSupplementInput): string {
-  if (!s) return "";
-  const i = s.interaction?.trim();
-  const c = s.conversion?.trim();
-  const parts: string[] = [];
-  if (i) parts.push(`【互动表现（用户补充）】${i}`);
-  if (c) parts.push(`【转化亮点（用户补充）】${c}`);
-  return parts.join("\n\n");
-}
 
 export async function ensureSeedData() {
   const settings = await prisma.appSettings.findUnique({ where: { id: "singleton" } });
@@ -151,9 +138,13 @@ export async function ensureSeedData() {
     }
   }
 
-  const trendingCount = await prisma.trendingPick.count();
-  if (trendingCount === 0) {
-    await prisma.trendingPick.createMany({ data: DEFAULT_TRENDING_PICKS });
+  try {
+    const trendingCount = await prisma.trendingPick.count();
+    if (trendingCount === 0) {
+      await prisma.trendingPick.createMany({ data: DEFAULT_TRENDING_PICKS });
+    }
+  } catch {
+    // 推荐库表可能尚未同步，不阻塞首页选项与设置页的基础加载。
   }
 }
 
@@ -417,15 +408,12 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
       .slice(0, 8000);
   }
 
-  const supplementBlock = buildBenchmarkSupplementNotes(options?.benchmarkSupplement);
-
   let userBenchmarkSummary: string | null = null;
   if (storedUserLink || storedUserImage) {
     userBenchmarkSummary = await analyzeBenchmarkForMimic({
       link: storedUserLink || undefined,
       linkPreview: linkPreview || undefined,
       imageDataUrl: storedUserImage || undefined,
-      userNotes: supplementBlock || undefined,
     });
     if (!userBenchmarkSummary) {
       userBenchmarkSummary = [
@@ -444,13 +432,7 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
         .map(([k, v]) => `${k}:${v}`)
         .join("\n")
     : "";
-  const supHints: string[] = [];
-  const bi = options?.benchmarkSupplement?.interaction?.trim();
-  const bc = options?.benchmarkSupplement?.conversion?.trim();
-  if (bi) supHints.push(`互动侧写:${bi}`);
-  if (bc) supHints.push(`转化侧写:${bc}`);
-  const supplementHints = supHints.join("｜");
-  const advancedHintsForAi = [fromContext, supplementHints].filter(Boolean).join("\n");
+  const advancedHintsForAi = fromContext;
 
   const accountList = await prisma.account.findMany();
   const categoryList = await prisma.category.findMany();
@@ -499,7 +481,7 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
           .map(([k, v]) => `【${k}】${v}`)
           .join("\n")
       : "";
-    const advancedHints = [fromCtx, supplementBlock].filter(Boolean).join("\n");
+    const advancedHints = fromCtx;
     const composed = makeBodyByFormatAndObjective(
       rowFormat,
       rowObjective,
@@ -631,7 +613,6 @@ export async function runDailyBatch(options?: RunOptions): Promise<PipelineResul
               ? "精准生：已应用高级约束字段"
               : "按平台规范与爆文结构自动生成",
           userBenchmarkSummary ? "对标：已解析用户链接/截图并参与仿写" : "对标：系统默认结构参考",
-          supplementBlock ? "对标补充：用户已填互动/转化侧写" : "对标补充：未填",
           `校验通过：格式=${d.contentFormat}，目标=${d.objective}${selectedLength ? `，长度=${selectedLength}` : ""}`,
           fixed.validation.fixes.length > 0 ? `自动修正：${fixed.validation.fixes.join("；")}` : "自动修正：无",
         ].join("｜"),

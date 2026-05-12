@@ -82,6 +82,12 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [settingsFallback, setSettingsFallback] = useState(false);
+  const [connections, setConnections] = useState<
+    { platform: string; accountName: string; connected: boolean; updatedAt?: string }[]
+  >([]);
+  const [syncingPlatform, setSyncingPlatform] = useState("");
   const [rules, setRules] = useState<PlatformRuleDraft[]>(DEFAULT_RULES);
   const [activePlatform, setActivePlatform] = useState("小红书");
   const [autoFillMode, setAutoFillMode] = useState<"auto_only" | "manual_override">("manual_override");
@@ -91,29 +97,47 @@ export default function SettingsPage() {
   const [publishCooldownMins, setPublishCooldownMins] = useState(10);
 
   const load = useCallback(async () => {
-    const r = await fetch("/api/settings");
-    const j = (await r.json()) as {
-      dailyCount: number;
-      premiumSlots: number;
-      scheduleHour: number;
-      bannedWords: string[];
-      maxConcurrentTask: number;
-      maxPublishPerHour: number;
-      minScoreForPublish: number;
-      autoDeleteRejected: boolean;
-      complianceLevel: string;
-    };
-    setDailyCount(j.dailyCount);
-    setPremiumSlots(j.premiumSlots);
-    setScheduleHour(j.scheduleHour);
-    setBannedWords(j.bannedWords.join(", "));
-    setMaxConcurrentTask(j.maxConcurrentTask);
-    setMaxPublishPerHour(j.maxPublishPerHour);
-    setMinScoreForPublish(j.minScoreForPublish);
-    setAutoDeleteRejected(j.autoDeleteRejected);
-    setComplianceLevel(j.complianceLevel);
-    setRules(DEFAULT_RULES);
-    setLoading(false);
+    setLoadError("");
+    try {
+      const [settingsRes, connectionsRes] = await Promise.all([
+        fetch("/api/settings"),
+        fetch("/api/connections"),
+      ]);
+      if (!settingsRes.ok) throw new Error("load_failed");
+      const j = (await settingsRes.json()) as {
+        dailyCount: number;
+        premiumSlots: number;
+        scheduleHour: number;
+        bannedWords: string[];
+        maxConcurrentTask: number;
+        maxPublishPerHour: number;
+        minScoreForPublish: number;
+        autoDeleteRejected: boolean;
+        complianceLevel: string;
+        fallback?: boolean;
+      };
+      const connectionJson = connectionsRes.ok
+        ? ((await connectionsRes.json()) as {
+            connections: { platform: string; accountName: string; connected: boolean; updatedAt?: string }[];
+          })
+        : { connections: [] };
+      setDailyCount(j.dailyCount);
+      setPremiumSlots(j.premiumSlots);
+      setScheduleHour(j.scheduleHour);
+      setBannedWords(j.bannedWords.join(", "));
+      setMaxConcurrentTask(j.maxConcurrentTask);
+      setMaxPublishPerHour(j.maxPublishPerHour);
+      setMinScoreForPublish(j.minScoreForPublish);
+      setAutoDeleteRejected(j.autoDeleteRejected);
+      setComplianceLevel(j.complianceLevel);
+      setSettingsFallback(Boolean(j.fallback));
+      setConnections(connectionJson.connections || []);
+    } catch {
+      setLoadError("配置读取失败，当前展示本地默认策略，可先继续维护推荐库与规则。");
+    } finally {
+      setRules(DEFAULT_RULES);
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -149,6 +173,24 @@ export default function SettingsPage() {
     }
   }
 
+  async function toggleConnection(platform: string, connected: boolean) {
+    setSyncingPlatform(platform);
+    try {
+      await fetch("/api/connections", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform,
+          accountName: `${platform}演示账号`,
+          action: connected ? "disconnect" : "connect",
+        }),
+      });
+      await load();
+    } finally {
+      setSyncingPlatform("");
+    }
+  }
+
   const activeRule = rules.find((r) => r.platform === activePlatform) ?? rules[0]!;
 
   function updateActiveRule<K extends keyof PlatformRuleDraft>(key: K, value: PlatformRuleDraft[K]) {
@@ -166,9 +208,20 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">策略配置</h1>
         <p className="mt-2 text-sm text-[hsl(var(--muted))]">
-          该页面决定内容“能不能稳定产出、是否符合平台规则、能不能顺利发布”。建议由运营负责人定期复盘并维护。
+          这里直接对应首页生成、每日推荐、审核与发布流程。建议把它当作运营后台来维护：先补推荐库，再调生成规则，最后看回流告警。
         </p>
       </div>
+
+      {loadError ? (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+          {loadError}
+        </div>
+      ) : null}
+      {settingsFallback ? (
+        <div className="rounded-2xl border border-sky-400/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
+          当前为本地演示模式：生成、审核、发布等流程可直接体验，数据会保存在本次预览进程的内存中。
+        </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_1fr]">
         <div className="space-y-6">
@@ -232,11 +285,43 @@ export default function SettingsPage() {
               </label>
             </div>
           </div>
+
+          <div id="connections" className="glass space-y-4 rounded-2xl p-6 scroll-mt-6">
+            <h2 className="text-base font-semibold">三、发布连接状态</h2>
+            <p className="text-xs text-[hsl(var(--muted))]">
+              待发布页点击「去配置」会跳到这里。建议优先保证「小红书 / 抖音」已连接，发布预览链路才能顺畅。
+            </p>
+            <div className="space-y-3">
+              {connections.map((item) => (
+                <div
+                  key={item.platform}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border)/0.45)] px-4 py-3"
+                >
+                  <div>
+                    <div className="text-sm font-medium">{item.platform}</div>
+                    <div className="mt-1 text-xs text-[hsl(var(--muted))]">
+                      {item.connected
+                        ? `当前账号：${item.accountName || `${item.platform}演示账号`}`
+                        : "当前未连接，发布页会提示先去配置。"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void toggleConnection(item.platform, item.connected)}
+                    className="btn-secondary rounded-xl px-3 py-2 text-xs"
+                    disabled={syncingPlatform === item.platform}
+                  >
+                    {syncingPlatform === item.platform ? "处理中..." : item.connected ? "断开" : "一键连接"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-6">
           <div className="glass space-y-4 rounded-2xl p-6">
-            <h2 className="text-base font-semibold">三、平台规则中心（自动填充 + 手动覆盖）</h2>
+            <h2 className="text-base font-semibold">四、平台规则中心（自动填充 + 手动覆盖）</h2>
             <div className="grid gap-2 md:grid-cols-2">
               <label className="block text-sm">
                 <span className="text-[hsl(var(--muted))]">当前平台</span>
@@ -308,7 +393,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="glass space-y-4 rounded-2xl p-6">
-            <h2 className="text-base font-semibold">四、质量回流与告警</h2>
+            <h2 className="text-base font-semibold">五、质量回流与告警</h2>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="block text-sm">
                 <span className="text-[hsl(var(--muted))]">失败告警阈值（%）</span>
@@ -327,9 +412,9 @@ export default function SettingsPage() {
       </div>
 
       <div className="glass space-y-4 rounded-2xl p-6">
-        <h2 className="text-base font-semibold">五、每日爆款推荐库</h2>
+        <h2 className="text-base font-semibold">六、每日爆款推荐库</h2>
         <p className="text-xs text-[hsl(var(--muted))]">
-          导入的数据用于首页「每日爆款推荐」：按「平台 + 内容赛道」（与随便生相同）筛选后随机展示，每个组合至少需{" "}
+          导入的数据用于首页「每日爆款推荐」：按「平台 + 内容赛道」筛选后展示 4-8 条，单个赛道库至少需{" "}
           <strong className="text-[hsl(var(--foreground))]">4</strong> 条素材才会出现推荐卡片；不足时展示缺省提示。
         </p>
         <TrendingLibraryImport />

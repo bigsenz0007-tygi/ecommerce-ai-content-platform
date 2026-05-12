@@ -27,9 +27,26 @@ npm run dev
 
 ---
 
-## 最后一次：Vercel 上线（按顺序做，不要跳步）
+## EdgeOne Pages 部署（当前推荐）
 
-### A. 代码在 GitHub 的 `main` 上
+项目根目录已补齐 `edgeone.json`，EdgeOne Pages 导入仓库后可直接识别以下关键参数：
+
+- `installCommand`: `npm ci`
+- `buildCommand`: `npm run build`
+- `outputDirectory`: `.next`
+- `nodeVersion`: `22.11.0`
+
+### A. 先准备生产环境变量
+
+至少配置以下变量：
+
+```bash
+DATABASE_URL="postgresql://生产库连接串"
+```
+
+如需接入真实模型，再按 `.env.example` 补充 `DOUBAO_*`、`KIMI_*`、`DEEPSEEK_*`、`OPENAI_*`。
+
+### B. 代码在 GitHub 的 `main` 上
 
 在本地项目目录执行：
 
@@ -38,24 +55,22 @@ git checkout main
 git push origin main
 ```
 
-打开 GitHub 仓库，确认能看到 `package.json`、`app/` 等文件；**空仓库 Vercel 一定失败**。
+打开 GitHub 仓库，确认能看到 `package.json`、`app/`、`edgeone.json` 等文件。
 
-### B. Vercel 只建 **一个** 项目
+### C. 在 EdgeOne Pages 创建项目
 
-1. 打开 [vercel.com](https://vercel.com) → 用 GitHub 登录 → **Add New → Project**。
-2. **Import** 仓库 `bigsenz0007-tygi/ecommerce-ai-content-platform`（或你的仓库名）。
-3. **Project Name**：填一个全新名字（若提示已存在就换一个）。
-4. **Framework Preset**：选 **Next.js**；Root Directory：**`./`**。
-5. **Environment Variables**（先加再点 Deploy）：
+1. 打开 [EdgeOne Pages](https://edgeone.ai/pages/new?s_url=https://console.tencentcloud.com/edgeone/pages)。
+2. 选择 GitHub 仓库 `bigsenz0007-tygi/ecommerce-ai-content-platform`。
+3. Framework 选择 `Next.js`，Root Directory 保持 `./`。
+4. 若控制台未自动读到配置，手动填写：
+   - Install Command: `npm ci`
+   - Build Command: `npm run build`
+   - Output Directory: `.next`
+   - Node Version: `22.11.0`
+5. 在环境变量中添加 `DATABASE_URL`，若要接真模型，再补充对应供应商密钥。
+6. 点击部署，等待首个生产部署完成。
 
-| Key | Value |
-|-----|--------|
-| `DATABASE_URL` | 与 Neon 里 **同一条** `postgresql://...` |
-| `NODE_ENV` | `production` |
-
-6. 点击 **Deploy**，等变为 **Ready**。
-
-### C. 给线上数据库建表 + 种子（只做一次）
+### D. 给线上数据库建表 + 种子（只做一次）
 
 在你本机（或任何能上网的终端），**用线上的同一条 `DATABASE_URL`**：
 
@@ -65,11 +80,32 @@ DATABASE_URL="postgresql://同上" npm run db:push
 DATABASE_URL="postgresql://同上" npm run db:seed
 ```
 
-然后到 Vercel → **Deployments** → **Redeploy** 一次（让运行时代码对齐）。
+然后在 EdgeOne 控制台重新触发一次部署，确保运行时代码与数据库结构对齐。
 
-### D. 为什么之前会 404「没有 Production Deployment」？
+### E. 自定义域名切换
 
-常见原因：**连了仓库但从没往 Vercel 监控的生产分支推送过**，或推送的是别的分支。**推 `main`** 后会自动出新部署。
+如果之前域名还指向 Vercel，需要把旧的 A / AAAA / CNAME 记录删除，再按 EdgeOne 提供的新记录值切过去。
+
+### F. 直接上传部署（CLI，可选）
+
+如果你不想走 Git 导入，也可以本机直接部署：
+
+```bash
+npx -y --registry=https://registry.npmmirror.com edgeone@latest login
+npx -y --registry=https://registry.npmmirror.com edgeone@latest pages deploy -n ecommerce-ai-content-platform
+```
+
+如果是 CI/CD 或无浏览器环境，改用 API Token：
+
+```bash
+npx -y --registry=https://registry.npmmirror.com edgeone@latest pages deploy -n ecommerce-ai-content-platform -t $EDGEONE_API_TOKEN
+```
+
+---
+
+## Vercel 说明（历史）
+
+之前的 Vercel 部署说明保留仅作历史参考；当前默认部署目标已切到 EdgeOne Pages。
 
 ---
 

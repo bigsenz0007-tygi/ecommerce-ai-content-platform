@@ -1,0 +1,38 @@
+{
+  "name": "ecommerce-ai-content-platform",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "nodeVersion": "22.11.0",
+  "headers": [
+    {
+      "source": "/*",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "cloudFunctions": {
+    "nodejs": {
+      "externalNodeModules": [
+        "@prisma/client",
+        "prisma"
+      ],
+      "includeFiles": [
+        "prisma/**"
+      ],
+      "maxDuration": 60
+    }
+  }
+}

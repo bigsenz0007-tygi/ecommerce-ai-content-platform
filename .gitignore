@@ -5,6 +5,7 @@ node_modules
 # next
 .next
 out
+.edgeone
 
 # env
 .env
@@ -25,3 +26,9 @@ npm-debug.log*
 # ide
 .idea
 .vscode
+
+# Tencent Cloud EdgeOne
+.env
+.edgeone/*
+.tef_dist/*
+  

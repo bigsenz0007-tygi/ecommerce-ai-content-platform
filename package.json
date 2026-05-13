@@ -7,6 +7,8 @@
     "dev:clean": "rm -rf .next && node ./node_modules/next/dist/bin/next dev -p 3100",
     "dev:3101": "node ./node_modules/next/dist/bin/next dev -p 3101",
     "build": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/next/dist/bin/next build",
+    "release:prepare": "bash scripts/prepare-standalone.sh",
+    "start:standalone": "bash scripts/run-standalone.sh",
     "start": "node ./node_modules/next/dist/bin/next start -p 3100",
     "lint": "node ./node_modules/next/dist/bin/next lint",
     "edgeone:login": "npx -y --registry=https://registry.npmmirror.com edgeone@latest login",
